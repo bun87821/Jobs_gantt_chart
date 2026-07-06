@@ -468,6 +468,16 @@
   .todo-text { color: var(--text-secondary); overflow-wrap: anywhere; }
   .todo-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .todo-actions button { padding: 3px 9px; font-size: 12px; }
+  .todo-actions input[type="date"] {
+    width: 132px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--page);
+    border: 1px solid var(--baseline);
+    border-radius: 7px;
+    padding: 3px 6px;
+  }
   @media (max-width: 640px) {
     .todo-item { grid-template-columns: 1fr; }
     .todo-actions { justify-content: flex-start; }
@@ -765,6 +775,7 @@ function fmtD(d) {
 function todayStr() { return fmtD(new Date()); }
 function addDays(s, n) { const d = parseD(s); d.setDate(d.getDate() + n); return fmtD(d); }
 function diffDays(a, b) { return Math.round((parseD(b) - parseD(a)) / 86400000); }
+function isValidDateStr(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s) && fmtD(parseD(s)) === s; }
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 /* 公司週規則：週日為一週的開始（週日～週六） */
 function weekStartOf(s) { const d = parseD(s); d.setDate(d.getDate() - d.getDay()); return fmtD(d); }
@@ -1142,7 +1153,7 @@ function renderDayLogs() {
   box.innerHTML = `<h4>${date} 已有內容</h4>` + items.map(l =>
     `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
   ).join("") + todos.map(t =>
-    `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}</span><button type="button" onclick="completeTodo('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
+    `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}</span><button type="button" onclick="completeTodoWithPrompt('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
   ).join("");
 }
 
@@ -1206,10 +1217,12 @@ function deleteTodo(id) {
   renderTodos();
 }
 
-function completeTodo(id) {
+function completeTodo(id, completedDate) {
   const t = state.todos.find(x => x.id === id);
   if (!t) return;
-  state.logs.push({ id: uid(), date: t.date, projectId: t.projectId, text: t.text });
+  const date = completedDate || todayStr();
+  if (!isValidDateStr(date)) { toast("完成日期格式不正確"); return; }
+  state.logs.push({ id: uid(), date, projectId: t.projectId, text: t.text });
   state.todos = state.todos.filter(x => x.id !== id);
   save();
   renderDayLogs();
@@ -1218,6 +1231,17 @@ function completeTodo(id) {
   renderProjectView();
   renderTodos();
   toast("已完成待辦，並加入完成紀錄 ✓");
+}
+
+function completeTodoWithPrompt(id) {
+  const date = prompt("實際完成日期（YYYY-MM-DD）", todayStr());
+  if (date === null) return;
+  completeTodo(id, date.trim());
+}
+
+function completeTodoFromList(btn, id) {
+  const input = btn.closest(".todo-actions").querySelector("input[type='date']");
+  completeTodo(id, input ? input.value : todayStr());
 }
 
 function renderTodos() {
@@ -1245,7 +1269,8 @@ function renderTodos() {
       </div>
       <div class="todo-actions">
         <button type="button" onclick="openLogDialog('${t.projectId}', '${t.date}')">查看</button>
-        <button type="button" onclick="completeTodo('${t.id}')">完成</button>
+        <input type="date" value="${todayStr()}" aria-label="完成日期">
+        <button type="button" onclick="completeTodoFromList(this, '${t.id}')">完成</button>
         <button type="button" class="danger" onclick="deleteTodo('${t.id}')">刪除</button>
       </div>
     </div>`;
