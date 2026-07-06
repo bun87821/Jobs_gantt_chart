@@ -580,21 +580,21 @@ function todayStr() { return fmtD(new Date()); }
 function addDays(s, n) { const d = parseD(s); d.setDate(d.getDate() + n); return fmtD(d); }
 function diffDays(a, b) { return Math.round((parseD(b) - parseD(a)) / 86400000); }
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
-function mondayOf(s) { const d = parseD(s); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return fmtD(d); }
+/* 公司週規則：週日為一週的開始（週日～週六） */
+function weekStartOf(s) { const d = parseD(s); d.setDate(d.getDate() - d.getDay()); return fmtD(d); }
 function shortD(s) { const d = parseD(s); return (d.getMonth() + 1) + "/" + d.getDate(); }
 
-/* ISO 週數（週一起算，跨年週歸屬含週四的那一年） */
-function isoWeek(s) {
-  const d = parseD(s);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // 移到本週四
-  const year = d.getFullYear();
-  const week1Thu = new Date(year, 0, 4);
-  week1Thu.setDate(week1Thu.getDate() + 3 - ((week1Thu.getDay() + 6) % 7));
-  return { year, week: 1 + Math.round((d - week1Thu) / 604800000) };
+/* 公司週數：含 1/1 的那一週為該年 W1（跨年週歸屬新的一年） */
+function companyWeek(s) {
+  const sun = weekStartOf(s);
+  const sat = addDays(sun, 6);
+  const year = parseD(sat).getFullYear(); // 週六的年份＝該週歸屬年（跨年週的週六必在新年）
+  const w1Start = weekStartOf(year + "-01-01");
+  return { year, week: diffDays(w1Start, sun) / 7 + 1 };
 }
-/* 週碼：W + 年份末碼 + 兩位週數，例：2026 第 28 週 → W628 */
+/* 週碼：W + 年份末碼 + 兩位週數，例：2026 第 12 週 → W612 */
 function weekCode(s) {
-  const { year, week } = isoWeek(s);
+  const { year, week } = companyWeek(s);
   return `W${year % 10}${String(week).padStart(2, "0")}`;
 }
 
@@ -692,15 +692,15 @@ function renderGantt() {
   // 表頭：週碼列（W + 年末碼 + 週數；每格為週一到週日，點擊可跳到該週週報）
   let weekCells = "";
   {
-    const curMonday = mondayOf(today);
+    const curWeek = weekStartOf(today);
     let i = 0;
     while (i < nDays) {
       const ds = addDays(min, i);
-      const dow = (parseD(ds).getDay() + 6) % 7; // 0 = 週一
+      const dow = parseD(ds).getDay(); // 0 = 週日（一週的開始）
       const span = Math.min(7 - dow, nDays - i);
       const code = weekCode(ds);
-      const mon = mondayOf(ds);
-      weekCells += `<div class="g-wk ${mon === curMonday ? "cur" : ""}" style="width:${span * DW}px" data-ws="${mon}" title="${code}（點擊查看該週週報）">${span >= 2 ? code : ""}</div>`;
+      const ws = weekStartOf(ds);
+      weekCells += `<div class="g-wk ${ws === curWeek ? "cur" : ""}" style="width:${span * DW}px" data-ws="${ws}" title="${code}（點擊查看該週週報）">${span >= 2 ? code : ""}</div>`;
       i += span;
     }
   }
@@ -960,7 +960,7 @@ function deleteLog(id) {
 }
 
 /* ============ 週報 ============ */
-let weekStart = mondayOf(todayStr());
+let weekStart = weekStartOf(todayStr());
 
 function switchView(v) {
   $("viewGantt").style.display = v === "gantt" ? "" : "none";
@@ -970,7 +970,7 @@ function switchView(v) {
   if (v === "gantt") scrollToToday();
 }
 function shiftWeek(n) { weekStart = addDays(weekStart, n * 7); renderWeek(); }
-function goThisWeek() { weekStart = mondayOf(todayStr()); renderWeek(); }
+function goThisWeek() { weekStart = weekStartOf(todayStr()); renderWeek(); }
 
 function weekData() {
   const days = [];
