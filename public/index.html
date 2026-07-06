@@ -186,18 +186,38 @@
     top: 8px;
     height: 18px;
     border-radius: 4px;
+    background: var(--c);
     opacity: 0.92;
     pointer-events: none;
   }
   .g-bar.done { opacity: 0.45; }
+  /* 有進度 % 的專案：空心軌道 + 實心已完成段 */
+  .g-bar.track { background: color-mix(in srgb, var(--c) 22%, transparent); opacity: 1; }
+  .g-fill {
+    position: absolute; top: 0; bottom: 0; left: 0;
+    border-radius: 4px;
+    background: var(--c);
+  }
+  .g-pct {
+    position: absolute; top: 1px;
+    font-size: 10.5px; font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
   .g-dot {
     position: absolute;
     top: 31px;
     width: 10px; height: 10px;
     border-radius: 50%;
+    background: var(--c);
     box-shadow: 0 0 0 2px var(--surface-1);
     cursor: pointer;
     z-index: 2;
+  }
+  .g-dot.hollow {
+    background: var(--surface-1);
+    border: 2.5px solid var(--c);
   }
   .g-dot:hover { transform: scale(1.35); }
 
@@ -211,7 +231,14 @@
   }
   .legend-note .k { display: inline-flex; align-items: center; gap: 6px; }
   .k-bar { width: 22px; height: 8px; border-radius: 3px; background: var(--accent); opacity: .9; }
+  .k-track {
+    width: 26px; height: 8px; border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    position: relative; display: inline-block;
+  }
+  .k-track > span { position: absolute; inset: 0 auto 0 0; width: 55%; border-radius: 3px; background: var(--accent); }
   .k-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px var(--baseline); }
+  .k-dot.hollow { background: var(--surface-1); border: 2px solid var(--accent); }
 
   /* ---------- Tooltip ---------- */
   #tooltip {
@@ -360,8 +387,10 @@
     </div>
     <div class="gantt-scroll" id="ganttScroll"></div>
     <div class="legend-note">
-      <span class="k"><span class="k-bar"></span>專案期間（開始 → 預計完成）</span>
-      <span class="k"><span class="k-dot"></span>當天有執行紀錄</span>
+      <span class="k"><span class="k-bar"></span>專案期間（尚未輸入進度 %）</span>
+      <span class="k"><span class="k-track"><span></span></span>實心＝已完成進度 %</span>
+      <span class="k"><span class="k-dot"></span>當天有更新進度 %</span>
+      <span class="k"><span class="k-dot hollow"></span>當天有文字紀錄</span>
     </div>
   </section>
 
@@ -436,6 +465,10 @@
       <div class="field">
         <label for="ldText">今天執行了什麼？</label>
         <textarea id="ldText" placeholder="例：完成登入頁面切版、修正 API 錯誤處理"></textarea>
+      </div>
+      <div class="field">
+        <label for="ldProgress">整個專案目前完成度 %（選填，算不出來就留空）</label>
+        <input id="ldProgress" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="例：60">
       </div>
       <div class="log-list" id="ldExisting"></div>
     </div>
@@ -547,6 +580,18 @@ function sortedProjects() {
 }
 const STATUS_LABEL = { active: "進行中", done: "已完成 ✓", paused: "暫停" };
 
+/* 專案目前進度 %：取「最新日期」那筆有填 % 的紀錄（同日以較晚輸入者為準）；沒填過則為 null */
+function currentProgress(pid) {
+  let best = null, bestDate = "";
+  for (const l of state.logs) {
+    if (l.projectId === pid && l.progress != null && l.date >= bestDate) {
+      best = l.progress;
+      bestDate = l.date;
+    }
+  }
+  return best;
+}
+
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg;
@@ -597,9 +642,9 @@ function renderGantt() {
   const today = todayStr();
 
   // 依專案+日期彙整紀錄
-  const logMap = {}; // key: projectId|date -> [texts]
+  const logMap = {}; // key: projectId|date -> [log entries]
   for (const l of state.logs) {
-    (logMap[l.projectId + "|" + l.date] ||= []).push(l.text);
+    (logMap[l.projectId + "|" + l.date] ||= []).push(l);
   }
 
   // 表頭：月份列
@@ -639,31 +684,42 @@ function renderGantt() {
       cells += `<div class="${cls}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
 
-    // 專案期間長條
+    // 專案期間長條：有進度 % → 空心軌道 + 實心已完成段；沒有 % → 原本的實心長條
     const s = Math.max(0, diffDays(min, p.start));
     const e = Math.min(nDays - 1, diffDays(min, p.end));
+    const prog = currentProgress(p.id);
     let bar = "";
     if (e >= s) {
-      bar = `<div class="g-bar ${p.status === "done" ? "done" : ""}" style="left:${s * DW + 2}px;width:${(e - s + 1) * DW - 4}px;background:${color}" data-barpid="${p.id}"></div>`;
+      const barStyle = `left:${s * DW + 2}px;width:${(e - s + 1) * DW - 4}px;--c:${color}`;
+      if (prog != null && p.status !== "done") {
+        const pctLabel = prog <= 80
+          ? `<span class="g-pct" style="left:calc(${prog}% + 5px)">${prog}%</span>`
+          : `<span class="g-pct" style="left:calc(100% + 5px)">${prog}%</span>`;
+        bar = `<div class="g-bar track" style="${barStyle}"><div class="g-fill" style="width:${prog}%"></div>${pctLabel}</div>`;
+      } else {
+        bar = `<div class="g-bar ${p.status === "done" ? "done" : ""}" style="${barStyle}"></div>`;
+      }
     }
 
-    // 每日紀錄圓點
+    // 每日紀錄圓點：實心＝當天有更新進度 %，空心＝純文字紀錄
     let dots = "";
     for (const key in logMap) {
       const [pid, ds] = key.split("|");
       if (pid !== p.id) continue;
       const idx = diffDays(min, ds);
       if (idx < 0 || idx >= nDays) continue;
-      dots += `<div class="g-dot" style="left:${idx * DW + (DW - 10) / 2}px;background:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
+      const hasProg = logMap[key].some(l => l.progress != null);
+      dots += `<div class="g-dot ${hasProg ? "" : "hollow"}" style="left:${idx * DW + (DW - 10) / 2}px;--c:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
 
     const statusCls = p.status === "done" ? "done" : p.status === "paused" ? "paused" : "";
     const statusTxt = p.status === "active" ? "" : `<span class="p-status ${statusCls}">${STATUS_LABEL[p.status]}</span>`;
+    const progTxt = (prog != null && p.status !== "done") ? `・目前 ${prog}%` : "";
     rows += `
       <div class="g-row">
         <div class="g-namecol" onclick="openProjectDialog('${p.id}')" title="點擊編輯專案">
           <div class="p-name"><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
-          <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）</div>
+          <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）${progTxt}</div>
         </div>
         <div class="g-timeline">${cells}${bar}${dots}</div>
       </div>`;
@@ -711,12 +767,13 @@ $("ganttScroll").addEventListener("mousemove", e => {
     const items = state.logs.filter(l => l.projectId === dot.dataset.pid && l.date === dot.dataset.date);
     html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
       <div class="tt-sub">${dot.dataset.date}（${WD[parseD(dot.dataset.date).getDay()]}）的執行紀錄</div>
-      <ul>${items.map(l => `<li>${esc(l.text)}</li>`).join("")}</ul>`;
+      <ul>${items.map(l => `<li>${esc(l.text || "（進度更新）")}${l.progress != null ? `　→ 進度 ${l.progress}%` : ""}</li>`).join("")}</ul>`;
   } else if (cell) {
     const p = projectById(cell.dataset.pid);
     const remain = diffDays(todayStr(), p.end);
+    const prog = currentProgress(p.id);
     html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
-      <div class="tt-sub">${p.start} → ${p.end} ・ ${STATUS_LABEL[p.status]}${p.status === "active" ? (remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已超過預計完成日 ${-remain} 天`) : ""}</div>
+      <div class="tt-sub">${p.start} → ${p.end} ・ ${STATUS_LABEL[p.status]}${prog != null && p.status !== "done" ? ` ・ 目前進度 ${prog}%` : ""}${p.status === "active" ? (remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已超過預計完成日 ${-remain} 天`) : ""}</div>
       <div class="tt-sub">點擊可記錄 ${cell.dataset.date} 的進度</div>`;
   }
   if (!html) { tooltip.style.display = "none"; return; }
@@ -801,6 +858,7 @@ function openLogDialog(projectId, date) {
   if (projectId) sel.value = projectId;
   $("ldDate").value = date || todayStr();
   $("ldText").value = "";
+  $("ldProgress").value = "";
   renderDayLogs();
   logDialog.showModal();
   $("ldText").focus();
@@ -813,16 +871,28 @@ function renderDayLogs() {
   if (items.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
   box.style.display = "";
   box.innerHTML = `<h4>${date} 已有的紀錄</h4>` + items.map(l =>
-    `<div class="log-item"><span class="lt">・${esc(l.text)}</span><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
+    `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
   ).join("");
 }
 
 function saveLog(e) {
   e.preventDefault();
   const text = $("ldText").value.trim();
-  if (!text) { toast("請輸入執行內容"); return false; }
-  state.logs.push({ id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text });
+  const progRaw = $("ldProgress").value.trim();
+  let progress = null;
+  if (progRaw !== "") {
+    progress = Math.round(Number(progRaw));
+    if (Number.isNaN(progress) || progress < 0 || progress > 100) {
+      toast("進度 % 請輸入 0–100 的數字，或留空");
+      return false;
+    }
+  }
+  if (!text && progress === null) { toast("請輸入執行內容，或至少填進度 %"); return false; }
+  const entry = { id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text };
+  if (progress !== null) entry.progress = progress;
+  state.logs.push(entry);
   $("ldText").value = "";
+  $("ldProgress").value = "";
   save();
   renderDayLogs();
   renderGantt();
@@ -885,7 +955,7 @@ function renderWeek() {
         html += `<div class="r-entry">
           <span class="p-swatch" style="background:${slotColor(l.project.slot)}"></span>
           <span class="rp">${esc(l.project.name)}</span>
-          <span class="rt">${esc(l.text)}</span>
+          <span class="rt">${esc(l.text || "（進度更新）")}${l.progress != null ? `　<b>進度 ${l.progress}%</b>` : ""}</span>
         </div>`;
       }
     }
@@ -896,10 +966,11 @@ function renderWeek() {
     html += `<div class="r-section-title">目前進行中的專案</div>`;
     for (const p of ongoing) {
       const remain = diffDays(today, p.end);
+      const prog = currentProgress(p.id);
       html += `<div class="r-proj">
         <span class="p-swatch" style="background:${slotColor(p.slot)}"></span>
         <span class="rp">${esc(p.name)}</span>
-        <span class="rd">${shortD(p.start)} – ${shortD(p.end)}${p.status === "paused" ? " ・ 暫停" : remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已逾期 ${-remain} 天`}</span>
+        <span class="rd">${shortD(p.start)} – ${shortD(p.end)}${prog != null ? ` ・ 進度 ${prog}%` : ""}${p.status === "paused" ? " ・ 暫停" : remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已逾期 ${-remain} 天`}</span>
       </div>`;
     }
   }
@@ -912,12 +983,18 @@ function copyWeekReport() {
   for (const { ds, entries } of days) {
     txt += `【${shortD(ds)}（${WD[parseD(ds).getDay()]}）】\n`;
     if (entries.length === 0) txt += `- （無紀錄）\n`;
-    else for (const l of entries) txt += `- ${l.project.name}：${l.text}\n`;
+    else for (const l of entries) {
+      const pct = l.progress != null ? `（進度 ${l.progress}%）` : "";
+      txt += `- ${l.project.name}：${l.text || "進度更新"}${pct}\n`;
+    }
     txt += "\n";
   }
   if (ongoing.length) {
     txt += `進行中專案：\n`;
-    for (const p of ongoing) txt += `- ${p.name}（${shortD(p.start)} – ${shortD(p.end)}）\n`;
+    for (const p of ongoing) {
+      const prog = currentProgress(p.id);
+      txt += `- ${p.name}（${shortD(p.start)} – ${shortD(p.end)}${prog != null ? `，進度 ${prog}%` : ""}）\n`;
+    }
   }
   navigator.clipboard.writeText(txt)
     .then(() => toast("已複製週報文字 ✓"))
@@ -965,13 +1042,13 @@ function loadSampleData() {
     ],
     logs: [
       { id: uid(), date: addDays(t, -12), projectId: p1, text: "確認需求與網站架構" },
-      { id: uid(), date: addDays(t, -9), projectId: p1, text: "完成首頁 wireframe" },
-      { id: uid(), date: addDays(t, -6), projectId: p1, text: "首頁視覺設計初稿" },
-      { id: uid(), date: addDays(t, -2), projectId: p1, text: "切版：首頁、關於我們" },
-      { id: uid(), date: t, projectId: p1, text: "串接聯絡表單 API" },
+      { id: uid(), date: addDays(t, -9), projectId: p1, text: "完成首頁 wireframe", progress: 15 },
+      { id: uid(), date: addDays(t, -6), projectId: p1, text: "首頁視覺設計初稿", progress: 30 },
+      { id: uid(), date: addDays(t, -2), projectId: p1, text: "切版：首頁、關於我們", progress: 50 },
+      { id: uid(), date: t, projectId: p1, text: "串接聯絡表單 API", progress: 60 },
       { id: uid(), date: addDays(t, -5), projectId: p2, text: "整理客戶背景資料" },
       { id: uid(), date: addDays(t, -2), projectId: p2, text: "撰寫提案簡報第一版" },
-      { id: uid(), date: addDays(t, -1), projectId: p2, text: "內部審閱、修改報價" },
+      { id: uid(), date: addDays(t, -1), projectId: p2, text: "內部審閱、修改報價", progress: 85 },
       { id: uid(), date: addDays(t, -20), projectId: p3, text: "規劃課程大綱" },
       { id: uid(), date: addDays(t, -14), projectId: p3, text: "第一場課程：Git 基礎" },
       { id: uid(), date: addDays(t, -8), projectId: p3, text: "第二場課程與問卷回收" },
