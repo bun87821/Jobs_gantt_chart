@@ -313,6 +313,12 @@
   .login-card p { margin: 0 0 24px; color: var(--text-secondary); font-size: 13.5px; }
   #gsiBtn { display: flex; justify-content: center; min-height: 44px; }
   .login-err { color: #d03b3b; font-size: 12.5px; margin-top: 14px; }
+  .login-or {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--text-muted); font-size: 12px; margin: 18px 0 14px;
+  }
+  .login-or::before, .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--grid); }
+  .login-note { font-size: 12px; color: var(--text-muted); margin: 10px 0 0; line-height: 1.55; }
 </style>
 </head>
 <body>
@@ -336,9 +342,12 @@
 <div id="loginOverlay" style="display:none">
   <div class="login-card">
     <h2>📊 專案時程追蹤</h2>
-    <p>用甘特圖管理專案時程、記錄每日執行內容。<br>請先使用 Google 帳號登入，你的紀錄會儲存在自己的帳號中。</p>
+    <p>用甘特圖管理專案時程、記錄每日執行內容。<br>使用 Google 帳號登入，你的紀錄會儲存在自己的帳號中，換裝置也能存取。</p>
     <div id="gsiBtn"></div>
     <div class="login-err" id="loginErr" style="display:none"></div>
+    <div class="login-or">或</div>
+    <button type="button" onclick="enterGuest()">先不登入，在這個裝置使用</button>
+    <p class="login-note">未登入時資料只儲存在這個瀏覽器，換裝置或清除瀏覽資料就會遺失；之後隨時可以登入，把資料匯入帳號。</p>
   </div>
 </div>
 
@@ -440,11 +449,15 @@
 <script>
 "use strict";
 
-/* ============ 資料層（透過 API 儲存到自己的帳號） ============ */
-const STORE_KEY = "gantt-tracker-v1"; // 舊版本機資料，登入後可匯入
+/* ============ 資料層 ============
+   已登入：透過 API 儲存到自己的帳號（資料庫）
+   未登入（訪客模式）：儲存在這個瀏覽器的 localStorage */
+const STORE_KEY = "gantt-tracker-v1";   // 訪客模式的本機資料，登入後可匯入帳號
+const GUEST_KEY = "gantt-tracker-guest"; // 記住「先不登入」的選擇
 const SLOT_COUNT = 8;
 let state = { projects: [], logs: [] };
 let currentUser = null;
+let guestMode = false;
 
 async function api(url, opts = {}) {
   const res = await fetch(url, {
@@ -464,6 +477,11 @@ async function api(url, opts = {}) {
 let saveTimer = null, saveDirty = false, saveRetry = null;
 
 function save() {
+  if (guestMode) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    setSaveStatus("已存在此裝置 ✓", true);
+    return;
+  }
   saveDirty = true;
   setSaveStatus("儲存中…");
   clearTimeout(saveTimer);
@@ -965,12 +983,19 @@ function loadSampleData() {
 
 /* ============ 登入 / 啟動 ============ */
 let googleClientId = "";
+let gsiReady = false;
 
 async function init() {
   try {
     const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
     googleClientId = cfg.googleClientId || "";
   } catch (e) { /* 稍後在登入畫面顯示錯誤 */ }
+
+  // 之前選過「先不登入」：直接進訪客模式
+  if (localStorage.getItem(GUEST_KEY)) {
+    enterGuest();
+    return;
+  }
 
   try {
     currentUser = await api("/api/me");
@@ -982,18 +1007,25 @@ function showLogin() {
   currentUser = null;
   $("loginOverlay").style.display = "";
   if (!googleClientId) {
-    loginError("尚未設定 GOOGLE_CLIENT_ID，請參考 README 完成 Google 登入設定。");
+    loginError("尚未設定 GOOGLE_CLIENT_ID，暫時無法使用 Google 登入；仍可選擇下方「先不登入」。");
     return;
   }
+  if (gsiReady) { renderGsiButton(); return; }
   const s = document.createElement("script");
   s.src = "https://accounts.google.com/gsi/client";
   s.async = true;
   s.onload = () => {
     google.accounts.id.initialize({ client_id: googleClientId, callback: onGoogleCredential });
-    google.accounts.id.renderButton($("gsiBtn"), { theme: "outline", size: "large", text: "signin_with", locale: "zh_TW", width: 280 });
+    gsiReady = true;
+    renderGsiButton();
   };
-  s.onerror = () => loginError("無法載入 Google 登入元件，請檢查網路後重新整理。");
+  s.onerror = () => loginError("無法載入 Google 登入元件，請檢查網路；仍可選擇下方「先不登入」。");
   document.head.appendChild(s);
+}
+
+function renderGsiButton() {
+  $("gsiBtn").innerHTML = "";
+  google.accounts.id.renderButton($("gsiBtn"), { theme: "outline", size: "large", text: "signin_with", locale: "zh_TW", width: 280 });
 }
 
 function loginError(msg) {
@@ -1005,10 +1037,41 @@ function loginError(msg) {
 async function onGoogleCredential(resp) {
   try {
     currentUser = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: resp.credential }) });
+    guestMode = false;
+    localStorage.removeItem(GUEST_KEY);
     await enterApp();
   } catch (e) {
     loginError("登入失敗，請再試一次。");
   }
+}
+
+/* 訪客模式：不登入，資料存在這個瀏覽器 */
+function enterGuest() {
+  guestMode = true;
+  currentUser = null;
+  localStorage.setItem(GUEST_KEY, "1");
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    state = {
+      projects: (raw && Array.isArray(raw.projects)) ? raw.projects : [],
+      logs: (raw && Array.isArray(raw.logs)) ? raw.logs : [],
+    };
+  } catch (e) { state = { projects: [], logs: [] }; }
+  $("loginOverlay").style.display = "none";
+
+  const chip = $("userChip");
+  chip.style.display = "";
+  chip.innerHTML = `<span title="未登入，資料只存在這個瀏覽器">未登入・資料存在此裝置</span>
+    <button type="button" onclick="switchToLogin()">登入</button>`;
+
+  renderGantt();
+  renderWeek();
+}
+
+/* 訪客模式中點「登入」：重新顯示登入畫面（按「先不登入」即可返回） */
+function switchToLogin() {
+  localStorage.removeItem(GUEST_KEY);
+  showLogin();
 }
 
 async function enterApp() {
@@ -1022,12 +1085,12 @@ async function enterApp() {
     <span>${esc(currentUser.name || currentUser.email)}</span>
     <button type="button" onclick="logout()">登出</button>`;
 
-  // 帳號還沒有資料時，若這個瀏覽器有舊版（localStorage）資料，提議匯入
+  // 帳號還沒有資料時，若這個瀏覽器有本機資料（訪客模式或舊版），提議匯入
   if (state.projects.length === 0 && state.logs.length === 0) {
     try {
       const old = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
       if (old && ((old.projects || []).length || (old.logs || []).length)) {
-        if (confirm(`這個瀏覽器有先前的本機資料（${(old.projects || []).length} 個專案、${(old.logs || []).length} 筆紀錄），要匯入你的帳號嗎？`)) {
+        if (confirm(`這個瀏覽器有未登入時的本機資料（${(old.projects || []).length} 個專案、${(old.logs || []).length} 筆紀錄），要匯入你的帳號嗎？`)) {
           state = { projects: old.projects || [], logs: old.logs || [] };
           save();
           localStorage.removeItem(STORE_KEY);
