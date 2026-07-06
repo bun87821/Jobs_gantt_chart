@@ -292,6 +292,92 @@
   .r-proj { display: flex; gap: 8px; align-items: center; margin: 4px 0 4px 4px; }
   .r-proj .rd { color: var(--text-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
+  /* ---------- 專案檢視 ---------- */
+  .project-view {
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) 1fr;
+    min-height: 520px;
+  }
+  .project-filters {
+    border-right: 1px solid var(--border);
+    padding: 14px;
+    background: var(--surface-1);
+  }
+  .filter-head {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 0 8px;
+  }
+  .filter-head h3 {
+    margin: 0; font-size: 13px; color: var(--text-muted); font-weight: 600;
+  }
+  .filter-head .spacer { flex: 1; }
+  .filter-head button { padding: 2px 8px; font-size: 12px; }
+  .check-list {
+    display: flex; flex-direction: column; gap: 2px;
+    margin-bottom: 18px;
+  }
+  .check-row {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 30px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .check-row:hover { background: var(--hover-wash); }
+  .check-row input { margin: 0; flex: none; }
+  .check-row .txt {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .check-row .sub {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .project-results { padding: 16px 18px 22px; }
+  .project-results-head {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--grid);
+  }
+  .project-results-head h2 { margin: 0; font-size: 16px; }
+  .project-results-head .summary { color: var(--text-muted); font-size: 12.5px; }
+  .project-block { padding: 16px 0 4px; border-bottom: 1px solid var(--grid); }
+  .project-block:last-child { border-bottom: none; }
+  .project-block h3 {
+    display: flex; align-items: center; gap: 8px;
+    margin: 0 0 8px; font-size: 15px;
+  }
+  .project-block h3 .meta {
+    color: var(--text-muted); font-weight: 400; font-size: 12px;
+  }
+  .week-block { margin: 10px 0 14px 18px; }
+  .week-block h4 {
+    margin: 0 0 6px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .project-log {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 10px;
+    padding: 5px 0;
+  }
+  .project-log .date {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .project-log .text { color: var(--text-secondary); }
+  .project-log .text b { color: var(--text-primary); font-weight: 600; }
+  @media (max-width: 760px) {
+    .project-view { grid-template-columns: 1fr; }
+    .project-filters { border-right: none; border-bottom: 1px solid var(--border); }
+    .project-log { grid-template-columns: 72px 1fr; }
+  }
+
   /* ---------- Dialogs ---------- */
   dialog {
     border: 1px solid var(--border);
@@ -368,6 +454,7 @@
   <div class="tabs" role="tablist">
     <button id="tabGantt" class="active" onclick="switchView('gantt')">甘特圖</button>
     <button id="tabWeek" onclick="switchView('week')">週報</button>
+    <button id="tabProject" onclick="switchView('project')">專案</button>
   </div>
   <div class="spacer"></div>
   <span id="saveStatus"></span>
@@ -418,6 +505,30 @@
       <button onclick="copyWeekReport()">📋 複製週報文字</button>
     </div>
     <div class="report" id="weekReport"></div>
+  </section>
+
+  <!-- 專案 -->
+  <section id="viewProject" class="card" style="display:none">
+    <div class="project-view">
+      <aside class="project-filters">
+        <div class="filter-head">
+          <h3>專案</h3>
+          <span class="spacer"></span>
+          <button type="button" onclick="setAllProjectFilters(true)">全選</button>
+          <button type="button" onclick="setAllProjectFilters(false)">清除</button>
+        </div>
+        <div class="check-list" id="projectFilterList"></div>
+
+        <div class="filter-head">
+          <h3>週別</h3>
+          <span class="spacer"></span>
+          <button type="button" onclick="setAllWeekFilters(true)">全選</button>
+          <button type="button" onclick="setAllWeekFilters(false)">清除</button>
+        </div>
+        <div class="check-list" id="weekFilterList"></div>
+      </aside>
+      <div class="project-results" id="projectResults"></div>
+    </div>
   </section>
 </main>
 
@@ -632,6 +743,7 @@ function refresh() {
   save();
   renderGantt();
   renderWeek();
+  renderProjectView();
 }
 
 /* ============ 甘特圖 ============ */
@@ -947,6 +1059,7 @@ function saveLog(e) {
   renderDayLogs();
   renderGantt();
   renderWeek();
+  renderProjectView();
   toast("已記錄 ✓ 甘特圖已更新");
   return false;
 }
@@ -957,6 +1070,7 @@ function deleteLog(id) {
   renderDayLogs();
   renderGantt();
   renderWeek();
+  renderProjectView();
 }
 
 /* ============ 週報 ============ */
@@ -965,9 +1079,12 @@ let weekStart = weekStartOf(todayStr());
 function switchView(v) {
   $("viewGantt").style.display = v === "gantt" ? "" : "none";
   $("viewWeek").style.display = v === "week" ? "" : "none";
+  $("viewProject").style.display = v === "project" ? "" : "none";
   $("tabGantt").classList.toggle("active", v === "gantt");
   $("tabWeek").classList.toggle("active", v === "week");
+  $("tabProject").classList.toggle("active", v === "project");
   if (v === "gantt") scrollToToday();
+  if (v === "project") renderProjectView();
 }
 function shiftWeek(n) { weekStart = addDays(weekStart, n * 7); renderWeek(); }
 function goThisWeek() { weekStart = weekStartOf(todayStr()); renderWeek(); }
@@ -1049,6 +1166,169 @@ function copyWeekReport() {
   navigator.clipboard.writeText(txt)
     .then(() => toast("已複製週報文字 ✓"))
     .catch(() => { prompt("複製以下文字：", txt); });
+}
+
+/* ============ 專案檢視 ============ */
+let projectFilterAll = true;
+let weekFilterAll = true;
+const selectedProjectIds = new Set();
+const selectedWeekStarts = new Set();
+
+function activeProjectIds() {
+  const ids = sortedProjects().map(p => p.id);
+  if (projectFilterAll) return new Set(ids);
+  return new Set(ids.filter(id => selectedProjectIds.has(id)));
+}
+
+function projectWeekOptions(projectIds) {
+  const today = todayStr();
+  const weeks = new Map();
+  for (const l of state.logs) {
+    if (l.date > today || !projectIds.has(l.projectId) || !projectById(l.projectId)) continue;
+    const ws = weekStartOf(l.date);
+    if (!weeks.has(ws)) weeks.set(ws, { ws, end: addDays(ws, 6), count: 0 });
+    weeks.get(ws).count++;
+  }
+  return [...weeks.values()].sort((a, b) => b.ws.localeCompare(a.ws));
+}
+
+function activeWeekStarts(options) {
+  const starts = options.map(w => w.ws);
+  if (weekFilterAll) return new Set(starts);
+  return new Set(starts.filter(ws => selectedWeekStarts.has(ws)));
+}
+
+function setAllProjectFilters(checked) {
+  projectFilterAll = checked;
+  selectedProjectIds.clear();
+  if (checked) for (const p of state.projects) selectedProjectIds.add(p.id);
+  renderProjectView();
+}
+
+function setAllWeekFilters(checked) {
+  weekFilterAll = checked;
+  selectedWeekStarts.clear();
+  if (checked) for (const w of projectWeekOptions(activeProjectIds())) selectedWeekStarts.add(w.ws);
+  renderProjectView();
+}
+
+function toggleProjectFilter(id, checked) {
+  if (projectFilterAll) {
+    selectedProjectIds.clear();
+    for (const p of state.projects) selectedProjectIds.add(p.id);
+    projectFilterAll = false;
+  }
+  if (checked) selectedProjectIds.add(id);
+  else selectedProjectIds.delete(id);
+  weekFilterAll = true;
+  selectedWeekStarts.clear();
+  renderProjectView();
+}
+
+function toggleWeekFilter(ws, checked) {
+  if (weekFilterAll) {
+    selectedWeekStarts.clear();
+    for (const w of projectWeekOptions(activeProjectIds())) selectedWeekStarts.add(w.ws);
+    weekFilterAll = false;
+  }
+  if (checked) selectedWeekStarts.add(ws);
+  else selectedWeekStarts.delete(ws);
+  renderProjectView();
+}
+
+function projectEntries(projectIds, weekStarts) {
+  const today = todayStr();
+  return state.logs
+    .filter(l => l.date <= today && projectIds.has(l.projectId) && weekStarts.has(weekStartOf(l.date)))
+    .map(l => ({ ...l, project: projectById(l.projectId), ws: weekStartOf(l.date) }))
+    .filter(l => l.project)
+    .sort((a, b) => a.project.start.localeCompare(b.project.start) || a.date.localeCompare(b.date));
+}
+
+function renderProjectView() {
+  const projectList = $("projectFilterList");
+  const weekList = $("weekFilterList");
+  const results = $("projectResults");
+  if (!projectList || !weekList || !results) return;
+
+  if (state.projects.length === 0) {
+    projectList.innerHTML = "";
+    weekList.innerHTML = "";
+    results.innerHTML = `<div class="empty-state">
+      <p>還沒有任何專案。建立專案並記錄進度後，這裡會依專案整理已完成事項。</p>
+      <button class="primary" onclick="openProjectDialog()">＋ 新增第一個專案</button>
+    </div>`;
+    return;
+  }
+
+  const projects = sortedProjects();
+  const validIds = new Set(projects.map(p => p.id));
+  for (const id of [...selectedProjectIds]) if (!validIds.has(id)) selectedProjectIds.delete(id);
+  const checkedProjects = activeProjectIds();
+  const weekOptions = projectWeekOptions(checkedProjects);
+  const validWeeks = new Set(weekOptions.map(w => w.ws));
+  for (const ws of [...selectedWeekStarts]) if (!validWeeks.has(ws)) selectedWeekStarts.delete(ws);
+  const checkedWeeks = activeWeekStarts(weekOptions);
+  const entries = projectEntries(checkedProjects, checkedWeeks);
+
+  projectList.innerHTML = projects.map(p => {
+    const n = state.logs.filter(l => l.projectId === p.id && l.date <= todayStr()).length;
+    const checked = projectFilterAll || selectedProjectIds.has(p.id);
+    return `<label class="check-row" title="${esc(p.name)}">
+      <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleProjectFilter('${p.id}', this.checked)">
+      <span class="p-swatch" style="background:${slotColor(p.slot)}"></span>
+      <span class="txt">${esc(p.name)}</span>
+      <span class="sub">${n}</span>
+    </label>`;
+  }).join("");
+
+  weekList.innerHTML = weekOptions.length ? weekOptions.map(w => {
+    const checked = weekFilterAll || selectedWeekStarts.has(w.ws);
+    return `<label class="check-row">
+      <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleWeekFilter('${w.ws}', this.checked)">
+      <span class="txt">${weekCode(w.ws)}・${shortD(w.ws)} – ${shortD(w.end)}</span>
+      <span class="sub">${w.count}</span>
+    </label>`;
+  }).join("") : `<div class="r-none">選取的專案目前沒有紀錄</div>`;
+
+  const selectedProjectCount = checkedProjects.size;
+  const selectedWeekCount = checkedWeeks.size;
+  let html = `<div class="project-results-head">
+    <h2>專案完成事項</h2>
+    <span class="summary">${selectedProjectCount} 個專案・${selectedWeekCount} 週・${entries.length} 筆紀錄</span>
+  </div>`;
+
+  if (entries.length === 0) {
+    html += `<div class="empty-state"><p>目前篩選條件下沒有可列出的事項。</p></div>`;
+    results.innerHTML = html;
+    return;
+  }
+
+  for (const p of projects.filter(p => checkedProjects.has(p.id))) {
+    const pEntries = entries.filter(l => l.projectId === p.id);
+    if (!pEntries.length) continue;
+    const prog = currentProgress(p.id);
+    html += `<section class="project-block">
+      <h3><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}
+        <span class="meta">${shortD(p.start)} – ${shortD(p.end)}${prog != null ? `・${prog}%` : ""}</span>
+      </h3>`;
+    const weeks = [...new Set(pEntries.map(l => l.ws))].sort();
+    for (const ws of weeks) {
+      const weekEntries = pEntries.filter(l => l.ws === ws);
+      html += `<div class="week-block">
+        <h4>${weekCode(ws)}・${ws.replaceAll("-", "/")} – ${addDays(ws, 6).replaceAll("-", "/")}</h4>`;
+      for (const l of weekEntries) {
+        html += `<div class="project-log">
+          <div class="date">${shortD(l.date)}（${WD[parseD(l.date).getDay()]}）</div>
+          <div class="text">${esc(l.text || "進度更新")}${l.progress != null ? ` <b>進度 ${l.progress}%</b>` : ""}</div>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</section>`;
+  }
+
+  results.innerHTML = html;
 }
 
 /* ============ 匯出 / 匯入 / 範例 ============ */
@@ -1193,6 +1473,7 @@ function enterGuest() {
 
   renderGantt();
   renderWeek();
+  renderProjectView();
 }
 
 /* 訪客模式中點「登入」：重新顯示登入畫面（按「先不登入」即可返回） */
@@ -1228,6 +1509,7 @@ async function enterApp() {
 
   renderGantt();
   renderWeek();
+  renderProjectView();
 }
 
 async function logout() {
