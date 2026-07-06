@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>專案時程追蹤</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --accent: #2a78d6;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --weekend: rgba(11,11,11,0.035);
+    --today-bg: rgba(42,120,214,0.08);
+    --hover-wash: rgba(11,11,11,0.05);
+    --s1: #2a78d6; --s2: #1baf7a; --s3: #eda100; --s4: #008300;
+    --s5: #4a3aa7; --s6: #e34948; --s7: #e87ba4; --s8: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1: #1a1a19;
+      --page: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+      --good: #0ca30c;
+      --good-text: #0ca30c;
+      --weekend: rgba(255,255,255,0.045);
+      --today-bg: rgba(57,135,229,0.13);
+      --hover-wash: rgba(255,255,255,0.07);
+      --s1: #3987e5; --s2: #199e70; --s3: #c98500; --s4: #008300;
+      --s5: #9085e9; --s6: #e66767; --s7: #d55181; --s8: #d95926;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  header.app {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-1);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  header.app h1 { font-size: 17px; font-weight: 600; margin: 0; }
+  header.app .spacer { flex: 1; }
+
+  button {
+    font: inherit;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--baseline);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--hover-wash); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost { border-color: transparent; color: var(--text-secondary); }
+  button.danger { color: #d03b3b; border-color: #d03b3b; background: transparent; }
+
+  .tabs { display: inline-flex; gap: 2px; background: var(--hover-wash); border-radius: 9px; padding: 3px; }
+  .tabs button { border: none; background: transparent; border-radius: 6px; padding: 5px 14px; color: var(--text-secondary); }
+  .tabs button.active { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.12); font-weight: 600; }
+
+  main { padding: 16px 20px 60px; max-width: 1400px; margin: 0 auto; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  /* ---------- Gantt ---------- */
+  .gantt-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .gantt-toolbar .hint { color: var(--text-muted); font-size: 12.5px; }
+  .gantt-scroll { overflow-x: auto; }
+  .gantt {
+    display: grid;
+    min-width: max-content;
+  }
+  .g-namecol {
+    position: sticky; left: 0; z-index: 5;
+    background: var(--surface-1);
+    border-right: 1px solid var(--baseline);
+    grid-column: 1;
+  }
+  .g-headrow .g-namecol { border-bottom: 1px solid var(--baseline); }
+  .g-timeline {
+    grid-column: 2;
+    position: relative;
+    display: flex;
+  }
+  .g-headrow .g-timeline { border-bottom: 1px solid var(--baseline); }
+
+  .g-month {
+    border-right: 1px solid var(--grid);
+    font-size: 12px; color: var(--text-secondary);
+    padding: 4px 6px 0;
+    white-space: nowrap; overflow: hidden;
+    position: relative;
+  }
+  .g-month span { position: sticky; left: 226px; }
+  .g-day {
+    width: var(--dw);
+    flex: none;
+    text-align: center;
+    border-right: 1px solid var(--grid);
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 0 5px;
+    line-height: 1.25;
+  }
+  .g-day .dnum { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .g-day.weekend { background: var(--weekend); }
+  .g-day.today { background: var(--today-bg); }
+  .g-day.today .dnum {
+    display: inline-block; min-width: 20px; border-radius: 10px;
+    background: var(--accent); color: #fff; font-weight: 600;
+  }
+
+  .g-row { display: contents; }
+  .g-row .g-namecol {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--grid);
+    width: 226px;
+    cursor: pointer;
+  }
+  .g-row .g-namecol:hover { background: var(--hover-wash); }
+  .g-row .g-timeline { border-bottom: 1px solid var(--grid); height: 46px; }
+  .p-name {
+    display: flex; align-items: center; gap: 7px;
+    font-weight: 600; font-size: 13.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .p-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .p-dates { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .p-status { font-size: 11px; margin-left: 6px; font-weight: 500; }
+  .p-status.done { color: var(--good-text); }
+  .p-status.paused { color: var(--text-muted); }
+
+  .g-cell {
+    width: var(--dw); flex: none; height: 100%;
+    border-right: 1px solid var(--grid);
+    cursor: pointer;
+  }
+  .g-cell.weekend { background: var(--weekend); }
+  .g-cell.today { background: var(--today-bg); }
+  .g-cell:hover { background: var(--hover-wash); }
+
+  .g-bar {
+    position: absolute;
+    top: 8px;
+    height: 18px;
+    border-radius: 4px;
+    opacity: 0.92;
+    pointer-events: none;
+  }
+  .g-bar.done { opacity: 0.45; }
+  .g-dot {
+    position: absolute;
+    top: 31px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--surface-1);
+    cursor: pointer;
+    z-index: 2;
+  }
+  .g-dot:hover { transform: scale(1.35); }
+
+  .empty-state { padding: 60px 20px; text-align: center; color: var(--text-secondary); }
+  .empty-state p { margin: 0 0 16px; }
+
+  .legend-note {
+    padding: 8px 14px; font-size: 12px; color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    display: flex; gap: 18px; flex-wrap: wrap;
+  }
+  .legend-note .k { display: inline-flex; align-items: center; gap: 6px; }
+  .k-bar { width: 22px; height: 8px; border-radius: 3px; background: var(--accent); opacity: .9; }
+  .k-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px var(--baseline); }
+
+  /* ---------- Tooltip ---------- */
+  #tooltip {
+    position: fixed; z-index: 100;
+    max-width: 320px;
+    background: var(--surface-1);
+    border: 1px solid var(--baseline);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 8px 11px;
+    font-size: 12.5px;
+    pointer-events: none;
+    display: none;
+  }
+  #tooltip h4 { margin: 0 0 3px; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  #tooltip .tt-sub { color: var(--text-muted); font-size: 11.5px; margin-bottom: 4px; }
+  #tooltip ul { margin: 4px 0 0; padding-left: 16px; }
+  #tooltip li { margin: 2px 0; color: var(--text-secondary); }
+
+  /* ---------- 週報 ---------- */
+  .week-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .week-title { font-weight: 600; font-size: 15px; }
+  .report { padding: 6px 18px 18px; }
+  .r-day { padding: 10px 0; border-bottom: 1px solid var(--grid); }
+  .r-day:last-of-type { border-bottom: none; }
+  .r-day h3 { margin: 0 0 6px; font-size: 13.5px; }
+  .r-day h3 .wd { color: var(--text-muted); font-weight: 400; margin-left: 6px; font-size: 12.5px; }
+  .r-day h3.is-today::after { content: "今天"; background: var(--accent); color:#fff; font-size: 10.5px; border-radius: 8px; padding: 1px 7px; margin-left: 8px; vertical-align: 1px; font-weight: 500; }
+  .r-entry { display: flex; gap: 8px; margin: 3px 0 3px 4px; align-items: baseline; }
+  .r-entry .p-swatch { align-self: center; }
+  .r-entry .rp { font-weight: 600; flex: none; }
+  .r-entry .rt { color: var(--text-secondary); }
+  .r-none { color: var(--text-muted); margin-left: 4px; font-size: 13px; }
+  .r-section-title { margin: 18px 0 6px; font-size: 13px; color: var(--text-muted); font-weight: 600; }
+  .r-proj { display: flex; gap: 8px; align-items: center; margin: 4px 0 4px 4px; }
+  .r-proj .rd { color: var(--text-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- Dialogs ---------- */
+  dialog {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-1);
+    color: var(--text-primary);
+    padding: 0;
+    width: min(440px, calc(100vw - 40px));
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.35); }
+  .dlg-head { padding: 14px 18px 0; font-size: 15.5px; font-weight: 600; }
+  .dlg-body { padding: 12px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .dlg-foot { padding: 0 18px 16px; display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+  .dlg-foot .left { margin-right: auto; }
+  .field label { display: block; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    font: inherit;
+    color: var(--text-primary);
+    background: var(--page);
+    border: 1px solid var(--baseline);
+    border-radius: 8px;
+    padding: 7px 10px;
+  }
+  .field textarea { resize: vertical; min-height: 74px; }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; }
+  .log-list { border-top: 1px solid var(--grid); padding-top: 10px; }
+  .log-list h4 { margin: 0 0 6px; font-size: 12.5px; color: var(--text-muted); font-weight: 600; }
+  .log-item { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 13px; }
+  .log-item .lt { flex: 1; color: var(--text-secondary); }
+  .log-item button { padding: 1px 8px; font-size: 12px; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page);
+    border-radius: 8px; padding: 8px 16px; font-size: 13px;
+    z-index: 200; opacity: 0; transition: opacity .25s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 0.95; }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <h1>📊 專案時程追蹤</h1>
+  <div class="tabs" role="tablist">
+    <button id="tabGantt" class="active" onclick="switchView('gantt')">甘特圖</button>
+    <button id="tabWeek" onclick="switchView('week')">週報</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="primary" onclick="openLogDialog()">＋ 記錄今日進度</button>
+  <button onclick="openProjectDialog()">＋ 新增專案</button>
+  <button class="ghost" onclick="exportData()" title="下載 JSON 備份">匯出</button>
+  <button class="ghost" onclick="document.getElementById('importFile').click()" title="從 JSON 備份還原">匯入</button>
+  <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+</header>
+
+<main>
+  <!-- 甘特圖 -->
+  <section id="viewGantt" class="card">
+    <div class="gantt-toolbar">
+      <button class="ghost" onclick="scrollToToday()">回到今天</button>
+      <span class="hint">點專案名稱可編輯專案；點時間格子可補記那一天的進度；滑鼠移到圓點上可看當天做了什麼。</span>
+    </div>
+    <div class="gantt-scroll" id="ganttScroll"></div>
+    <div class="legend-note">
+      <span class="k"><span class="k-bar"></span>專案期間（開始 → 預計完成）</span>
+      <span class="k"><span class="k-dot"></span>當天有執行紀錄</span>
+    </div>
+  </section>
+
+  <!-- 週報 -->
+  <section id="viewWeek" class="card" style="display:none">
+    <div class="week-toolbar">
+      <button onclick="shiftWeek(-1)">‹ 上一週</button>
+      <button onclick="goThisWeek()">本週</button>
+      <button onclick="shiftWeek(1)">下一週 ›</button>
+      <span class="week-title" id="weekTitle"></span>
+      <div class="spacer" style="flex:1"></div>
+      <button onclick="copyWeekReport()">📋 複製週報文字</button>
+    </div>
+    <div class="report" id="weekReport"></div>
+  </section>
+</main>
+
+<div id="tooltip"></div>
+<div id="toast" class="toast"></div>
+
+<!-- 專案編輯 -->
+<dialog id="projectDialog">
+  <div class="dlg-head" id="pdTitle">新增專案</div>
+  <form method="dialog">
+    <div class="dlg-body">
+      <div class="field">
+        <label for="pdName">專案名稱</label>
+        <input id="pdName" required placeholder="例：官網改版">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="pdStart">開始日期</label>
+          <input id="pdStart" type="date" required>
+        </div>
+        <div class="field">
+          <label for="pdEnd">預計完成</label>
+          <input id="pdEnd" type="date" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="pdStatus">狀態</label>
+        <select id="pdStatus">
+          <option value="active">進行中</option>
+          <option value="done">已完成 ✓</option>
+          <option value="paused">暫停</option>
+        </select>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="danger left" id="pdDelete" onclick="deleteProject()">刪除專案</button>
+      <button type="button" onclick="projectDialog.close()">取消</button>
+      <button class="primary" value="save" onclick="return saveProject(event)">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 進度紀錄 -->
+<dialog id="logDialog">
+  <div class="dlg-head">記錄每日進度</div>
+  <form method="dialog">
+    <div class="dlg-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="ldDate">日期</label>
+          <input id="ldDate" type="date" required onchange="renderDayLogs()">
+        </div>
+        <div class="field">
+          <label for="ldProject">專案</label>
+          <select id="ldProject" onchange="renderDayLogs()"></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="ldText">今天執行了什麼？</label>
+        <textarea id="ldText" placeholder="例：完成登入頁面切版、修正 API 錯誤處理"></textarea>
+      </div>
+      <div class="log-list" id="ldExisting"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" onclick="logDialog.close()">關閉</button>
+      <button class="primary" value="save" onclick="return saveLog(event)">新增紀錄</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+/* ============ 資料層 ============ */
+const STORE_KEY = "gantt-tracker-v1";
+const SLOT_COUNT = 8;
+let state = { projects: [], logs: [] };
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) state = JSON.parse(raw);
+  } catch (e) { console.warn("讀取資料失敗", e); }
+  if (!Array.isArray(state.projects)) state.projects = [];
+  if (!Array.isArray(state.logs)) state.logs = [];
+}
+function save() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+/* ============ 日期工具（皆為本地時區、YYYY-MM-DD 字串） ============ */
+function parseD(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
+function fmtD(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function todayStr() { return fmtD(new Date()); }
+function addDays(s, n) { const d = parseD(s); d.setDate(d.getDate() + n); return fmtD(d); }
+function diffDays(a, b) { return Math.round((parseD(b) - parseD(a)) / 86400000); }
+const WD = ["日", "一", "二", "三", "四", "五", "六"];
+function mondayOf(s) { const d = parseD(s); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return fmtD(d); }
+function shortD(s) { const d = parseD(s); return (d.getMonth() + 1) + "/" + d.getDate(); }
+
+/* ============ 共用 ============ */
+const $ = id => document.getElementById(id);
+function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function slotColor(i) { return `var(--s${(i % SLOT_COUNT) + 1})`; }
+function projectById(id) { return state.projects.find(p => p.id === id); }
+function sortedProjects() {
+  return [...state.projects].sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
+}
+const STATUS_LABEL = { active: "進行中", done: "已完成 ✓", paused: "暫停" };
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function refresh() {
+  save();
+  renderGantt();
+  renderWeek();
+}
+
+/* ============ 甘特圖 ============ */
+const DW = 30; // 每日欄寬 px
+document.documentElement.style.setProperty("--dw", DW + "px");
+
+function ganttRange() {
+  const today = todayStr();
+  let min = addDays(today, -10), max = addDays(today, 20);
+  for (const p of state.projects) {
+    if (p.start < min) min = p.start;
+    if (p.end > max) max = p.end;
+  }
+  for (const l of state.logs) {
+    if (l.date < min) min = l.date;
+    if (l.date > max) max = l.date;
+  }
+  return { min: addDays(min, -3), max: addDays(max, 5) };
+}
+
+function renderGantt() {
+  const wrap = $("ganttScroll");
+  const projects = sortedProjects();
+
+  if (projects.length === 0) {
+    wrap.innerHTML = `<div class="empty-state">
+      <p>還沒有任何專案。先建立一個專案，之後每天記錄進度就會自動顯示在甘特圖上。</p>
+      <button class="primary" onclick="openProjectDialog()">＋ 新增第一個專案</button>
+      <button onclick="loadSampleData()" style="margin-left:8px">載入範例資料看看效果</button>
+    </div>`;
+    return;
+  }
+
+  const { min, max } = ganttRange();
+  const nDays = diffDays(min, max) + 1;
+  const today = todayStr();
+
+  // 依專案+日期彙整紀錄
+  const logMap = {}; // key: projectId|date -> [texts]
+  for (const l of state.logs) {
+    (logMap[l.projectId + "|" + l.date] ||= []).push(l.text);
+  }
+
+  // 表頭：月份列
+  let monthCells = "";
+  {
+    let i = 0;
+    while (i < nDays) {
+      const d = parseD(addDays(min, i));
+      const y = d.getFullYear(), m = d.getMonth();
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const span = Math.min(daysInMonth - d.getDate() + 1, nDays - i);
+      monthCells += `<div class="g-month" style="width:${span * DW}px"><span>${y}年${m + 1}月</span></div>`;
+      i += span;
+    }
+  }
+
+  // 表頭：日期列
+  let dayCells = "";
+  for (let i = 0; i < nDays; i++) {
+    const ds = addDays(min, i);
+    const d = parseD(ds);
+    const wd = d.getDay();
+    const cls = ["g-day", (wd === 0 || wd === 6) && "weekend", ds === today && "today"].filter(Boolean).join(" ");
+    dayCells += `<div class="${cls}" ${ds === today ? 'id="todayHead"' : ""}><span class="dnum">${d.getDate()}</span><br>${WD[wd]}</div>`;
+  }
+
+  // 各專案列
+  let rows = "";
+  projects.forEach((p) => {
+    const color = slotColor(p.slot);
+    let cells = "";
+    for (let i = 0; i < nDays; i++) {
+      const ds = addDays(min, i);
+      const d = parseD(ds);
+      const wd = d.getDay();
+      const cls = ["g-cell", (wd === 0 || wd === 6) && "weekend", ds === today && "today"].filter(Boolean).join(" ");
+      cells += `<div class="${cls}" data-pid="${p.id}" data-date="${ds}"></div>`;
+    }
+
+    // 專案期間長條
+    const s = Math.max(0, diffDays(min, p.start));
+    const e = Math.min(nDays - 1, diffDays(min, p.end));
+    let bar = "";
+    if (e >= s) {
+      bar = `<div class="g-bar ${p.status === "done" ? "done" : ""}" style="left:${s * DW + 2}px;width:${(e - s + 1) * DW - 4}px;background:${color}" data-barpid="${p.id}"></div>`;
+    }
+
+    // 每日紀錄圓點
+    let dots = "";
+    for (const key in logMap) {
+      const [pid, ds] = key.split("|");
+      if (pid !== p.id) continue;
+      const idx = diffDays(min, ds);
+      if (idx < 0 || idx >= nDays) continue;
+      dots += `<div class="g-dot" style="left:${idx * DW + (DW - 10) / 2}px;background:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
+    }
+
+    const statusCls = p.status === "done" ? "done" : p.status === "paused" ? "paused" : "";
+    const statusTxt = p.status === "active" ? "" : `<span class="p-status ${statusCls}">${STATUS_LABEL[p.status]}</span>`;
+    rows += `
+      <div class="g-row">
+        <div class="g-namecol" onclick="openProjectDialog('${p.id}')" title="點擊編輯專案">
+          <div class="p-name"><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
+          <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）</div>
+        </div>
+        <div class="g-timeline">${cells}${bar}${dots}</div>
+      </div>`;
+  });
+
+  wrap.innerHTML = `
+    <div class="gantt" style="grid-template-columns: 226px ${nDays * DW}px">
+      <div class="g-headrow g-row">
+        <div class="g-namecol"></div>
+        <div class="g-timeline">${monthCells}</div>
+      </div>
+      <div class="g-headrow g-row">
+        <div class="g-namecol" style="grid-row:2"></div>
+        <div class="g-timeline">${dayCells}</div>
+      </div>
+      ${rows}
+    </div>`;
+
+  wrap._minDate = min;
+  requestAnimationFrame(scrollToToday);
+}
+
+function scrollToToday() {
+  const wrap = $("ganttScroll");
+  if (!wrap._minDate) return;
+  const idx = diffDays(wrap._minDate, todayStr());
+  wrap.scrollLeft = Math.max(0, idx * DW - wrap.clientWidth / 2 + 113);
+}
+
+/* 甘特圖互動：點格子補記、hover 圓點/長條顯示 tooltip */
+$("ganttScroll").addEventListener("click", e => {
+  const dot = e.target.closest(".g-dot");
+  if (dot) { openLogDialog(dot.dataset.pid, dot.dataset.date); return; }
+  const cell = e.target.closest(".g-cell");
+  if (cell) openLogDialog(cell.dataset.pid, cell.dataset.date);
+});
+
+const tooltip = $("tooltip");
+$("ganttScroll").addEventListener("mousemove", e => {
+  const dot = e.target.closest(".g-dot");
+  const cell = !dot && e.target.closest(".g-cell");
+  let html = "";
+  if (dot) {
+    const p = projectById(dot.dataset.pid);
+    const items = state.logs.filter(l => l.projectId === dot.dataset.pid && l.date === dot.dataset.date);
+    html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
+      <div class="tt-sub">${dot.dataset.date}（${WD[parseD(dot.dataset.date).getDay()]}）的執行紀錄</div>
+      <ul>${items.map(l => `<li>${esc(l.text)}</li>`).join("")}</ul>`;
+  } else if (cell) {
+    const p = projectById(cell.dataset.pid);
+    const remain = diffDays(todayStr(), p.end);
+    html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
+      <div class="tt-sub">${p.start} → ${p.end} ・ ${STATUS_LABEL[p.status]}${p.status === "active" ? (remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已超過預計完成日 ${-remain} 天`) : ""}</div>
+      <div class="tt-sub">點擊可記錄 ${cell.dataset.date} 的進度</div>`;
+  }
+  if (!html) { tooltip.style.display = "none"; return; }
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tooltip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tooltip.style.left = x + "px";
+  tooltip.style.top = y + "px";
+});
+$("ganttScroll").addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+
+/* ============ 專案對話框 ============ */
+const projectDialog = $("projectDialog");
+let editingProjectId = null;
+
+function openProjectDialog(id) {
+  editingProjectId = id || null;
+  $("pdTitle").textContent = id ? "編輯專案" : "新增專案";
+  $("pdDelete").style.display = id ? "" : "none";
+  if (id) {
+    const p = projectById(id);
+    $("pdName").value = p.name;
+    $("pdStart").value = p.start;
+    $("pdEnd").value = p.end;
+    $("pdStatus").value = p.status;
+  } else {
+    $("pdName").value = "";
+    $("pdStart").value = todayStr();
+    $("pdEnd").value = addDays(todayStr(), 13);
+    $("pdStatus").value = "active";
+  }
+  projectDialog.showModal();
+}
+
+function saveProject(e) {
+  e.preventDefault();
+  const name = $("pdName").value.trim();
+  const start = $("pdStart").value, end = $("pdEnd").value;
+  if (!name || !start || !end) { toast("請填寫名稱與日期"); return false; }
+  if (end < start) { toast("預計完成日不能早於開始日"); return false; }
+  if (editingProjectId) {
+    Object.assign(projectById(editingProjectId), { name, start, end, status: $("pdStatus").value });
+  } else {
+    const usedSlots = state.projects.map(p => p.slot % SLOT_COUNT);
+    let slot = 0;
+    while (usedSlots.includes(slot % SLOT_COUNT) && slot < SLOT_COUNT) slot++;
+    if (slot >= SLOT_COUNT) slot = state.projects.length % SLOT_COUNT;
+    state.projects.push({ id: uid(), name, start, end, status: $("pdStatus").value, slot });
+  }
+  projectDialog.close();
+  refresh();
+  return false;
+}
+
+function deleteProject() {
+  const p = projectById(editingProjectId);
+  const n = state.logs.filter(l => l.projectId === editingProjectId).length;
+  if (!confirm(`確定刪除「${p.name}」？${n ? `其 ${n} 筆每日紀錄也會一併刪除。` : ""}`)) return;
+  state.projects = state.projects.filter(x => x.id !== editingProjectId);
+  state.logs = state.logs.filter(l => l.projectId !== editingProjectId);
+  projectDialog.close();
+  refresh();
+}
+
+/* ============ 進度紀錄對話框 ============ */
+const logDialog = $("logDialog");
+
+function openLogDialog(projectId, date) {
+  if (state.projects.length === 0) {
+    toast("請先建立至少一個專案");
+    openProjectDialog();
+    return;
+  }
+  const sel = $("ldProject");
+  sel.innerHTML = sortedProjects()
+    .map(p => `<option value="${p.id}">${esc(p.name)}${p.status !== "active" ? `（${STATUS_LABEL[p.status]}）` : ""}</option>`)
+    .join("");
+  if (projectId) sel.value = projectId;
+  $("ldDate").value = date || todayStr();
+  $("ldText").value = "";
+  renderDayLogs();
+  logDialog.showModal();
+  $("ldText").focus();
+}
+
+function renderDayLogs() {
+  const pid = $("ldProject").value, date = $("ldDate").value;
+  const items = state.logs.filter(l => l.projectId === pid && l.date === date);
+  const box = $("ldExisting");
+  if (items.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
+  box.style.display = "";
+  box.innerHTML = `<h4>${date} 已有的紀錄</h4>` + items.map(l =>
+    `<div class="log-item"><span class="lt">・${esc(l.text)}</span><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
+  ).join("");
+}
+
+function saveLog(e) {
+  e.preventDefault();
+  const text = $("ldText").value.trim();
+  if (!text) { toast("請輸入執行內容"); return false; }
+  state.logs.push({ id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text });
+  $("ldText").value = "";
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderWeek();
+  toast("已記錄 ✓ 甘特圖已更新");
+  return false;
+}
+
+function deleteLog(id) {
+  state.logs = state.logs.filter(l => l.id !== id);
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderWeek();
+}
+
+/* ============ 週報 ============ */
+let weekStart = mondayOf(todayStr());
+
+function switchView(v) {
+  $("viewGantt").style.display = v === "gantt" ? "" : "none";
+  $("viewWeek").style.display = v === "week" ? "" : "none";
+  $("tabGantt").classList.toggle("active", v === "gantt");
+  $("tabWeek").classList.toggle("active", v === "week");
+  if (v === "gantt") scrollToToday();
+}
+function shiftWeek(n) { weekStart = addDays(weekStart, n * 7); renderWeek(); }
+function goThisWeek() { weekStart = mondayOf(todayStr()); renderWeek(); }
+
+function weekData() {
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const ds = addDays(weekStart, i);
+    const entries = state.logs
+      .filter(l => l.date === ds)
+      .map(l => ({ ...l, project: projectById(l.projectId) }))
+      .filter(l => l.project)
+      .sort((a, b) => a.project.start.localeCompare(b.project.start));
+    days.push({ ds, entries });
+  }
+  const weekEnd = addDays(weekStart, 6);
+  const ongoing = sortedProjects().filter(p => p.status !== "done" && p.start <= weekEnd && p.end >= weekStart || p.status === "active" && p.start <= weekEnd);
+  return { days, weekEnd, ongoing };
+}
+
+function renderWeek() {
+  const { days, weekEnd, ongoing } = weekData();
+  $("weekTitle").textContent = `${weekStart.replaceAll("-", "/")} – ${shortD(weekEnd)}`;
+  const today = todayStr();
+
+  let html = "";
+  for (const { ds, entries } of days) {
+    const d = parseD(ds);
+    html += `<div class="r-day">
+      <h3 class="${ds === today ? "is-today" : ""}">${shortD(ds)}<span class="wd">週${WD[d.getDay()]}</span></h3>`;
+    if (entries.length === 0) {
+      html += `<div class="r-none">— 無紀錄</div>`;
+    } else {
+      for (const l of entries) {
+        html += `<div class="r-entry">
+          <span class="p-swatch" style="background:${slotColor(l.project.slot)}"></span>
+          <span class="rp">${esc(l.project.name)}</span>
+          <span class="rt">${esc(l.text)}</span>
+        </div>`;
+      }
+    }
+    html += `</div>`;
+  }
+
+  if (ongoing.length) {
+    html += `<div class="r-section-title">目前進行中的專案</div>`;
+    for (const p of ongoing) {
+      const remain = diffDays(today, p.end);
+      html += `<div class="r-proj">
+        <span class="p-swatch" style="background:${slotColor(p.slot)}"></span>
+        <span class="rp">${esc(p.name)}</span>
+        <span class="rd">${shortD(p.start)} – ${shortD(p.end)}${p.status === "paused" ? " ・ 暫停" : remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已逾期 ${-remain} 天`}</span>
+      </div>`;
+    }
+  }
+  $("weekReport").innerHTML = html;
+}
+
+function copyWeekReport() {
+  const { days, weekEnd, ongoing } = weekData();
+  let txt = `週報 ${weekStart.replaceAll("-", "/")} – ${weekEnd.replaceAll("-", "/")}\n\n`;
+  for (const { ds, entries } of days) {
+    txt += `【${shortD(ds)}（${WD[parseD(ds).getDay()]}）】\n`;
+    if (entries.length === 0) txt += `- （無紀錄）\n`;
+    else for (const l of entries) txt += `- ${l.project.name}：${l.text}\n`;
+    txt += "\n";
+  }
+  if (ongoing.length) {
+    txt += `進行中專案：\n`;
+    for (const p of ongoing) txt += `- ${p.name}（${shortD(p.start)} – ${shortD(p.end)}）\n`;
+  }
+  navigator.clipboard.writeText(txt)
+    .then(() => toast("已複製週報文字 ✓"))
+    .catch(() => { prompt("複製以下文字：", txt); });
+}
+
+/* ============ 匯出 / 匯入 / 範例 ============ */
+function exportData() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `專案時程備份-${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importData(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data.projects) || !Array.isArray(data.logs)) throw new Error("格式不符");
+      if (!confirm(`匯入將取代目前的資料（${data.projects.length} 個專案、${data.logs.length} 筆紀錄）。確定？`)) return;
+      state = data;
+      refresh();
+      toast("匯入成功 ✓");
+    } catch (e) {
+      toast("匯入失敗：不是有效的備份檔");
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+}
+
+function loadSampleData() {
+  const t = todayStr();
+  const p1 = uid(), p2 = uid(), p3 = uid();
+  state = {
+    projects: [
+      { id: p1, name: "官網改版", start: addDays(t, -12), end: addDays(t, 9), status: "active", slot: 0 },
+      { id: p2, name: "客戶 A 提案", start: addDays(t, -5), end: addDays(t, 3), status: "active", slot: 1 },
+      { id: p3, name: "內部教育訓練", start: addDays(t, -20), end: addDays(t, -8), status: "done", slot: 2 },
+    ],
+    logs: [
+      { id: uid(), date: addDays(t, -12), projectId: p1, text: "確認需求與網站架構" },
+      { id: uid(), date: addDays(t, -9), projectId: p1, text: "完成首頁 wireframe" },
+      { id: uid(), date: addDays(t, -6), projectId: p1, text: "首頁視覺設計初稿" },
+      { id: uid(), date: addDays(t, -2), projectId: p1, text: "切版：首頁、關於我們" },
+      { id: uid(), date: t, projectId: p1, text: "串接聯絡表單 API" },
+      { id: uid(), date: addDays(t, -5), projectId: p2, text: "整理客戶背景資料" },
+      { id: uid(), date: addDays(t, -2), projectId: p2, text: "撰寫提案簡報第一版" },
+      { id: uid(), date: addDays(t, -1), projectId: p2, text: "內部審閱、修改報價" },
+      { id: uid(), date: addDays(t, -20), projectId: p3, text: "規劃課程大綱" },
+      { id: uid(), date: addDays(t, -14), projectId: p3, text: "第一場課程：Git 基礎" },
+      { id: uid(), date: addDays(t, -8), projectId: p3, text: "第二場課程與問卷回收" },
+    ],
+  };
+  refresh();
+  toast("已載入範例資料（可隨時刪除）");
+}
+
+/* ============ 啟動 ============ */
+load();
+renderGantt();
+renderWeek();
+</script>
+</body>
+</html>
