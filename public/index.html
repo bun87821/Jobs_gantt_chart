@@ -234,11 +234,14 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .drag-handle {
-    color: var(--text-muted);
     cursor: grab;
     flex: none;
-    font-size: 14px;
-    line-height: 1;
+    width: 12px;
+    height: 18px;
+    opacity: .65;
+    background-image: radial-gradient(circle, var(--text-muted) 1.4px, transparent 1.6px);
+    background-size: 6px 6px;
+    background-position: 0 0;
     touch-action: none;
     user-select: none;
   }
@@ -1085,7 +1088,7 @@ function renderGantt() {
     rows += `
       <div class="g-row">
         <div class="g-namecol" draggable="true" data-pid="${p.id}" onclick="if (!window.justDraggedProject && !event.target.closest('.drag-handle')) openProjectDialog('${p.id}')" title="拖移可調整順序；點擊可編輯專案">
-          <div class="p-name"><span class="drag-handle" title="拖移排序">↕</span><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
+          <div class="p-name"><span class="drag-handle" title="拖移排序" aria-label="拖移排序"></span><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
           <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）${progTxt}</div>
         </div>
         <div class="g-timeline">${cells}${bar}${dots}${todos}</div>
