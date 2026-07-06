@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>專案時程追蹤</title>
+<script>
+  (() => {
+    const theme = localStorage.getItem("gantt-theme");
+    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+  })();
+</script>
 <style>
   :root {
     --surface-1: #fcfcfb;
@@ -42,6 +48,42 @@
       --s1: #3987e5; --s2: #199e70; --s3: #c98500; --s4: #008300;
       --s5: #9085e9; --s6: #e66767; --s7: #d55181; --s8: #d95926;
     }
+  }
+  :root[data-theme="light"] {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --accent: #2a78d6;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --weekend: rgba(11,11,11,0.035);
+    --today-bg: rgba(42,120,214,0.08);
+    --hover-wash: rgba(11,11,11,0.05);
+    --s1: #2a78d6; --s2: #1baf7a; --s3: #eda100; --s4: #008300;
+    --s5: #4a3aa7; --s6: #e34948; --s7: #e87ba4; --s8: #eb6834;
+  }
+  :root[data-theme="dark"] {
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --good: #0ca30c;
+    --good-text: #0ca30c;
+    --weekend: rgba(255,255,255,0.045);
+    --today-bg: rgba(57,135,229,0.13);
+    --hover-wash: rgba(255,255,255,0.07);
+    --s1: #3987e5; --s2: #199e70; --s3: #c98500; --s4: #008300;
+    --s5: #9085e9; --s6: #e66767; --s7: #d55181; --s8: #d95926;
   }
 
   * { box-sizing: border-box; }
@@ -87,6 +129,16 @@
   button.primary:hover { filter: brightness(1.08); }
   button.ghost { border-color: transparent; color: var(--text-secondary); }
   button.danger { color: #d03b3b; border-color: #d03b3b; background: transparent; }
+  .theme-toggle {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 17px;
+    line-height: 1;
+  }
 
   .tabs { display: inline-flex; gap: 2px; background: var(--hover-wash); border-radius: 9px; padding: 3px; }
   .tabs button { border: none; background: transparent; border-radius: 6px; padding: 5px 14px; color: var(--text-secondary); }
@@ -529,6 +581,7 @@
   </div>
   <div class="spacer"></div>
   <span id="saveStatus"></span>
+  <button id="themeToggle" class="ghost theme-toggle" type="button" onclick="toggleTheme()" title="切換色系" aria-label="切換色系">☾</button>
   <button class="primary" onclick="openLogDialog()">＋ 記錄今日進度</button>
   <button onclick="openProjectDialog()">＋ 新增專案</button>
   <button class="ghost" onclick="exportData()" title="下載 JSON 備份">匯出</button>
@@ -689,6 +742,7 @@
    未登入（訪客模式）：儲存在這個瀏覽器的 localStorage */
 const STORE_KEY = "gantt-tracker-v1";   // 訪客模式的本機資料，登入後可匯入帳號
 const GUEST_KEY = "gantt-tracker-guest"; // 記住「先不登入」的選擇
+const THEME_KEY = "gantt-theme";
 const SLOT_COUNT = 8;
 let state = { projects: [], logs: [], todos: [] };
 let currentUser = null;
@@ -804,6 +858,27 @@ function sortedProjects() {
   return [...state.projects].sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
 }
 const STATUS_LABEL = { active: "進行中", done: "已完成 ✓", paused: "暫停" };
+
+function effectiveTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "light" || saved === "dark") return saved;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  const btn = $("themeToggle");
+  if (!btn) return;
+  const isDark = theme === "dark";
+  btn.textContent = isDark ? "☀" : "☾";
+  btn.title = isDark ? "開燈：切換到白色版本" : "關燈：切換到深色版本";
+  btn.setAttribute("aria-label", btn.title);
+}
+
+function toggleTheme() {
+  applyTheme(effectiveTheme() === "dark" ? "light" : "dark");
+}
 
 /* 專案目前進度 %：取「最新日期」那筆有填 % 的紀錄（同日以較晚輸入者為準）；沒填過則為 null */
 function currentProgress(pid) {
@@ -1629,6 +1704,8 @@ let googleClientId = "";
 let gsiReady = false;
 
 async function init() {
+  applyTheme(effectiveTheme());
+
   try {
     const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
     googleClientId = cfg.googleClientId || "";
