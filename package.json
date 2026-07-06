@@ -1,0 +1,19 @@
+{
+  "name": "jobs-gantt-chart",
+  "version": "1.0.0",
+  "description": "專案時程追蹤：甘特圖 + 每日進度紀錄 + 週報，Google 登入、雲端儲存",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "google-auth-library": "^9.14.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
+  }
+}

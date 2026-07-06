@@ -294,6 +294,25 @@
     pointer-events: none;
   }
   .toast.show { opacity: 0.95; }
+
+  /* ---------- 登入與帳號 ---------- */
+  #saveStatus { font-size: 12px; color: var(--text-muted); min-width: 56px; text-align: right; }
+  .user-chip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+  .user-chip img { width: 26px; height: 26px; border-radius: 50%; }
+  .user-chip button { padding: 3px 10px; font-size: 12.5px; }
+  #loginOverlay {
+    position: fixed; inset: 0; background: var(--page); z-index: 500;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .login-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px 44px; text-align: center; max-width: 380px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+  }
+  .login-card h2 { margin: 0 0 8px; font-size: 20px; }
+  .login-card p { margin: 0 0 24px; color: var(--text-secondary); font-size: 13.5px; }
+  #gsiBtn { display: flex; justify-content: center; min-height: 44px; }
+  .login-err { color: #d03b3b; font-size: 12.5px; margin-top: 14px; }
 </style>
 </head>
 <body>
@@ -305,12 +324,23 @@
     <button id="tabWeek" onclick="switchView('week')">週報</button>
   </div>
   <div class="spacer"></div>
+  <span id="saveStatus"></span>
   <button class="primary" onclick="openLogDialog()">＋ 記錄今日進度</button>
   <button onclick="openProjectDialog()">＋ 新增專案</button>
   <button class="ghost" onclick="exportData()" title="下載 JSON 備份">匯出</button>
   <button class="ghost" onclick="document.getElementById('importFile').click()" title="從 JSON 備份還原">匯入</button>
   <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+  <span class="user-chip" id="userChip" style="display:none"></span>
 </header>
+
+<div id="loginOverlay" style="display:none">
+  <div class="login-card">
+    <h2>📊 專案時程追蹤</h2>
+    <p>用甘特圖管理專案時程、記錄每日執行內容。<br>請先使用 Google 帳號登入，你的紀錄會儲存在自己的帳號中。</p>
+    <div id="gsiBtn"></div>
+    <div class="login-err" id="loginErr" style="display:none"></div>
+  </div>
+</div>
 
 <main>
   <!-- 甘特圖 -->
@@ -410,22 +440,71 @@
 <script>
 "use strict";
 
-/* ============ 資料層 ============ */
-const STORE_KEY = "gantt-tracker-v1";
+/* ============ 資料層（透過 API 儲存到自己的帳號） ============ */
+const STORE_KEY = "gantt-tracker-v1"; // 舊版本機資料，登入後可匯入
 const SLOT_COUNT = 8;
 let state = { projects: [], logs: [] };
+let currentUser = null;
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) state = JSON.parse(raw);
-  } catch (e) { console.warn("讀取資料失敗", e); }
-  if (!Array.isArray(state.projects)) state.projects = [];
-  if (!Array.isArray(state.logs)) state.logs = [];
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error("unauthorized");
+  }
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
 }
+
+/* 儲存：合併短時間內的變更後上傳（去抖 600ms），並顯示儲存狀態 */
+let saveTimer = null, saveDirty = false, saveRetry = null;
+
 function save() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  saveDirty = true;
+  setSaveStatus("儲存中…");
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 600);
 }
+
+async function flushSave() {
+  if (!saveDirty || !currentUser) return;
+  saveDirty = false;
+  clearTimeout(saveRetry);
+  try {
+    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    if (!saveDirty) setSaveStatus("已儲存 ✓", true);
+  } catch (e) {
+    saveDirty = true;
+    setSaveStatus("儲存失敗，重試中…");
+    saveRetry = setTimeout(flushSave, 4000);
+  }
+}
+
+function setSaveStatus(txt, fade) {
+  const el = $("saveStatus");
+  el.textContent = txt;
+  clearTimeout(el._h);
+  if (fade) el._h = setTimeout(() => { el.textContent = ""; }, 2500);
+}
+
+/* 關頁前盡量把未儲存的變更送出 */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && saveDirty && currentUser) {
+    saveDirty = false;
+    fetch("/api/state", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+      keepalive: true,
+    }).catch(() => {});
+  }
+});
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 /* ============ 日期工具（皆為本地時區、YYYY-MM-DD 字串） ============ */
@@ -884,10 +963,90 @@ function loadSampleData() {
   toast("已載入範例資料（可隨時刪除）");
 }
 
-/* ============ 啟動 ============ */
-load();
-renderGantt();
-renderWeek();
+/* ============ 登入 / 啟動 ============ */
+let googleClientId = "";
+
+async function init() {
+  try {
+    const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
+    googleClientId = cfg.googleClientId || "";
+  } catch (e) { /* 稍後在登入畫面顯示錯誤 */ }
+
+  try {
+    currentUser = await api("/api/me");
+    await enterApp();
+  } catch (e) { /* 未登入：api() 已呼叫 showLogin() */ }
+}
+
+function showLogin() {
+  currentUser = null;
+  $("loginOverlay").style.display = "";
+  if (!googleClientId) {
+    loginError("尚未設定 GOOGLE_CLIENT_ID，請參考 README 完成 Google 登入設定。");
+    return;
+  }
+  const s = document.createElement("script");
+  s.src = "https://accounts.google.com/gsi/client";
+  s.async = true;
+  s.onload = () => {
+    google.accounts.id.initialize({ client_id: googleClientId, callback: onGoogleCredential });
+    google.accounts.id.renderButton($("gsiBtn"), { theme: "outline", size: "large", text: "signin_with", locale: "zh_TW", width: 280 });
+  };
+  s.onerror = () => loginError("無法載入 Google 登入元件，請檢查網路後重新整理。");
+  document.head.appendChild(s);
+}
+
+function loginError(msg) {
+  const el = $("loginErr");
+  el.textContent = msg;
+  el.style.display = "";
+}
+
+async function onGoogleCredential(resp) {
+  try {
+    currentUser = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: resp.credential }) });
+    await enterApp();
+  } catch (e) {
+    loginError("登入失敗，請再試一次。");
+  }
+}
+
+async function enterApp() {
+  state = await api("/api/state");
+  $("loginOverlay").style.display = "none";
+
+  // 顯示使用者資訊
+  const chip = $("userChip");
+  chip.style.display = "";
+  chip.innerHTML = `${currentUser.picture ? `<img src="${esc(currentUser.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
+    <span>${esc(currentUser.name || currentUser.email)}</span>
+    <button type="button" onclick="logout()">登出</button>`;
+
+  // 帳號還沒有資料時，若這個瀏覽器有舊版（localStorage）資料，提議匯入
+  if (state.projects.length === 0 && state.logs.length === 0) {
+    try {
+      const old = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+      if (old && ((old.projects || []).length || (old.logs || []).length)) {
+        if (confirm(`這個瀏覽器有先前的本機資料（${(old.projects || []).length} 個專案、${(old.logs || []).length} 筆紀錄），要匯入你的帳號嗎？`)) {
+          state = { projects: old.projects || [], logs: old.logs || [] };
+          save();
+          localStorage.removeItem(STORE_KEY);
+        }
+      }
+    } catch (e) { /* 舊資料格式錯誤就略過 */ }
+  }
+
+  renderGantt();
+  renderWeek();
+}
+
+async function logout() {
+  await flushSave();
+  try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
+  location.reload();
+}
+
+init();
 </script>
 </body>
 </html>
