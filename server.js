@@ -18,7 +18,7 @@ if (!GOOGLE_CLIENT_ID) {
   console.warn("⚠ 未設定 GOOGLE_CLIENT_ID，Google 登入將無法使用。");
 }
 
-const EMPTY_STATE = { projects: [], logs: [] };
+const EMPTY_STATE = { projects: [], logs: [], todos: [] };
 const MAX_STATE_BYTES = 1_000_000;
 const SESSION_DAYS = 30;
 
@@ -42,7 +42,7 @@ if (process.env.DATABASE_URL) {
           email      text,
           name       text,
           picture    text,
-          data       jsonb NOT NULL DEFAULT '{"projects":[],"logs":[]}'::jsonb,
+          data       jsonb NOT NULL DEFAULT '{"projects":[],"logs":[],"todos":[]}'::jsonb,
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
         )`);
@@ -173,6 +173,7 @@ app.get("/api/state", requireAuth, async (req, res) => {
     res.json({
       projects: Array.isArray(data.projects) ? data.projects : [],
       logs: Array.isArray(data.logs) ? data.logs : [],
+      todos: Array.isArray(data.todos) ? data.todos : [],
     });
   } catch (e) {
     console.error("讀取資料失敗:", e.message);
@@ -182,10 +183,10 @@ app.get("/api/state", requireAuth, async (req, res) => {
 
 app.put("/api/state", requireAuth, async (req, res) => {
   const data = req.body;
-  if (!data || !Array.isArray(data.projects) || !Array.isArray(data.logs)) {
+  if (!data || !Array.isArray(data.projects) || !Array.isArray(data.logs) || (data.todos != null && !Array.isArray(data.todos))) {
     return res.status(400).json({ error: "bad_format" });
   }
-  const payload = { projects: data.projects, logs: data.logs };
+  const payload = { projects: data.projects, logs: data.logs, todos: Array.isArray(data.todos) ? data.todos : [] };
   if (JSON.stringify(payload).length > MAX_STATE_BYTES) {
     return res.status(413).json({ error: "too_large" });
   }

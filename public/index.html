@@ -233,6 +233,19 @@
     border: 2.5px solid var(--c);
   }
   .g-dot:hover { transform: scale(1.35); }
+  .g-todo {
+    position: absolute;
+    top: 19px;
+    width: 11px; height: 11px;
+    border-radius: 3px;
+    border: 2px solid var(--c);
+    background: var(--surface-1);
+    box-shadow: 0 0 0 2px var(--surface-1);
+    cursor: pointer;
+    z-index: 3;
+    transform: rotate(45deg);
+  }
+  .g-todo:hover { transform: rotate(45deg) scale(1.3); }
 
   .empty-state { padding: 60px 20px; text-align: center; color: var(--text-secondary); }
   .empty-state p { margin: 0 0 16px; }
@@ -252,6 +265,7 @@
   .k-track > span { position: absolute; inset: 0 auto 0 0; width: 55%; border-radius: 3px; background: var(--accent); }
   .k-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 3px var(--baseline); }
   .k-dot.hollow { background: var(--surface-1); border: 2px solid var(--accent); }
+  .k-todo { width: 10px; height: 10px; border: 2px solid var(--accent); border-radius: 3px; transform: rotate(45deg); }
 
   /* ---------- Tooltip ---------- */
   #tooltip {
@@ -352,6 +366,25 @@
   .project-block h3 .meta {
     color: var(--text-muted); font-weight: 400; font-size: 12px;
   }
+  .project-week-picker {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin: 4px 0 12px 18px;
+  }
+  .project-week-picker button {
+    padding: 2px 8px;
+    font-size: 12px;
+  }
+  .week-check {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 7px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .week-check:hover { background: var(--hover-wash); }
+  .week-check input { margin: 0; }
   .week-block { margin: 10px 0 14px 18px; }
   .week-block h4 {
     margin: 0 0 6px;
@@ -411,6 +444,34 @@
   .log-item { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 13px; }
   .log-item .lt { flex: 1; color: var(--text-secondary); }
   .log-item button { padding: 1px 8px; font-size: 12px; }
+  .todo-panel { margin-top: 16px; }
+  .todo-head {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .todo-head h2 { margin: 0; font-size: 16px; }
+  .todo-head .summary { color: var(--text-muted); font-size: 12.5px; }
+  .todo-list { padding: 6px 16px 14px; }
+  .todo-item {
+    display: grid;
+    grid-template-columns: 96px 1fr auto;
+    gap: 10px;
+    align-items: start;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--grid);
+  }
+  .todo-item:last-child { border-bottom: none; }
+  .todo-date { color: var(--text-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .todo-main { min-width: 0; }
+  .todo-project { display: flex; align-items: center; gap: 7px; font-weight: 600; margin-bottom: 2px; }
+  .todo-text { color: var(--text-secondary); overflow-wrap: anywhere; }
+  .todo-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .todo-actions button { padding: 3px 9px; font-size: 12px; }
+  @media (max-width: 640px) {
+    .todo-item { grid-template-columns: 1fr; }
+    .todo-actions { justify-content: flex-start; }
+  }
 
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -491,6 +552,7 @@
       <span class="k"><span class="k-track"><span></span></span>實心＝已完成進度 %</span>
       <span class="k"><span class="k-dot"></span>當天有更新進度 %</span>
       <span class="k"><span class="k-dot hollow"></span>當天有文字紀錄</span>
+      <span class="k"><span class="k-todo"></span>預計待辦事項</span>
     </div>
   </section>
 
@@ -518,17 +580,18 @@
           <button type="button" onclick="setAllProjectFilters(false)">清除</button>
         </div>
         <div class="check-list" id="projectFilterList"></div>
-
-        <div class="filter-head">
-          <h3>週別</h3>
-          <span class="spacer"></span>
-          <button type="button" onclick="setAllWeekFilters(true)">全選</button>
-          <button type="button" onclick="setAllWeekFilters(false)">清除</button>
-        </div>
-        <div class="check-list" id="weekFilterList"></div>
       </aside>
       <div class="project-results" id="projectResults"></div>
     </div>
+  </section>
+
+  <!-- 待辦事項 -->
+  <section class="card todo-panel">
+    <div class="todo-head">
+      <h2>待辦事項</h2>
+      <span class="summary" id="todoSummary"></span>
+    </div>
+    <div class="todo-list" id="todoList"></div>
   </section>
 </main>
 
@@ -594,10 +657,15 @@
         <label for="ldProgress">整個專案目前完成度 %（選填，算不出來就留空）</label>
         <input id="ldProgress" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="例：60">
       </div>
+      <div class="field">
+        <label for="ldTodo">預計要做的事情（待辦）</label>
+        <textarea id="ldTodo" placeholder="例：下週完成首頁 QA、確認客戶回饋"></textarea>
+      </div>
       <div class="log-list" id="ldExisting"></div>
     </div>
     <div class="dlg-foot">
       <button type="button" onclick="logDialog.close()">關閉</button>
+      <button type="button" onclick="return saveTodo(event)">新增待辦</button>
       <button class="primary" value="save" onclick="return saveLog(event)">新增紀錄</button>
     </div>
   </form>
@@ -612,7 +680,7 @@
 const STORE_KEY = "gantt-tracker-v1";   // 訪客模式的本機資料，登入後可匯入帳號
 const GUEST_KEY = "gantt-tracker-guest"; // 記住「先不登入」的選擇
 const SLOT_COUNT = 8;
-let state = { projects: [], logs: [] };
+let state = { projects: [], logs: [], todos: [] };
 let currentUser = null;
 let guestMode = false;
 
@@ -681,6 +749,13 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function normalizeState(data) {
+  return {
+    projects: data && Array.isArray(data.projects) ? data.projects : [],
+    logs: data && Array.isArray(data.logs) ? data.logs : [],
+    todos: data && Array.isArray(data.todos) ? data.todos : [],
+  };
+}
 
 /* ============ 日期工具（皆為本地時區、YYYY-MM-DD 字串） ============ */
 function parseD(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
@@ -744,6 +819,7 @@ function refresh() {
   renderGantt();
   renderWeek();
   renderProjectView();
+  renderTodos();
 }
 
 /* ============ 甘特圖 ============ */
@@ -760,6 +836,11 @@ function ganttRange() {
   for (const l of state.logs) {
     if (l.date < min) min = l.date;
     if (l.date > max) max = l.date;
+  }
+  for (const t of state.todos) {
+    if (t.done) continue;
+    if (t.date < min) min = t.date;
+    if (t.date > max) max = t.date;
   }
   return { min: addDays(min, -3), max: addDays(max, 5) };
 }
@@ -785,6 +866,10 @@ function renderGantt() {
   const logMap = {}; // key: projectId|date -> [log entries]
   for (const l of state.logs) {
     (logMap[l.projectId + "|" + l.date] ||= []).push(l);
+  }
+  const todoMap = {}; // key: projectId|date -> [todo entries]
+  for (const t of state.todos) {
+    if (!t.done) (todoMap[t.projectId + "|" + t.date] ||= []).push(t);
   }
 
   // 表頭：月份列
@@ -867,6 +952,14 @@ function renderGantt() {
       const hasProg = logMap[key].some(l => l.progress != null);
       dots += `<div class="g-dot ${hasProg ? "" : "hollow"}" style="left:${idx * DW + (DW - 10) / 2}px;--c:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
+    let todos = "";
+    for (const key in todoMap) {
+      const [pid, ds] = key.split("|");
+      if (pid !== p.id) continue;
+      const idx = diffDays(min, ds);
+      if (idx < 0 || idx >= nDays) continue;
+      todos += `<div class="g-todo" style="left:${idx * DW + (DW - 11) / 2}px;--c:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
+    }
 
     const statusCls = p.status === "done" ? "done" : p.status === "paused" ? "paused" : "";
     const statusTxt = p.status === "active" ? "" : `<span class="p-status ${statusCls}">${STATUS_LABEL[p.status]}</span>`;
@@ -877,7 +970,7 @@ function renderGantt() {
           <div class="p-name"><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
           <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）${progTxt}</div>
         </div>
-        <div class="g-timeline">${cells}${bar}${dots}</div>
+        <div class="g-timeline">${cells}${bar}${dots}${todos}</div>
       </div>`;
   });
 
@@ -913,6 +1006,8 @@ function scrollToToday() {
 $("ganttScroll").addEventListener("click", e => {
   const dot = e.target.closest(".g-dot");
   if (dot) { openLogDialog(dot.dataset.pid, dot.dataset.date); return; }
+  const todo = e.target.closest(".g-todo");
+  if (todo) { openLogDialog(todo.dataset.pid, todo.dataset.date); return; }
   const wk = e.target.closest(".g-wk");
   if (wk) { weekStart = wk.dataset.ws; switchView("week"); renderWeek(); return; }
   const cell = e.target.closest(".g-cell");
@@ -922,7 +1017,8 @@ $("ganttScroll").addEventListener("click", e => {
 const tooltip = $("tooltip");
 $("ganttScroll").addEventListener("mousemove", e => {
   const dot = e.target.closest(".g-dot");
-  const cell = !dot && e.target.closest(".g-cell");
+  const todo = !dot && e.target.closest(".g-todo");
+  const cell = !dot && !todo && e.target.closest(".g-cell");
   let html = "";
   if (dot) {
     const p = projectById(dot.dataset.pid);
@@ -930,6 +1026,12 @@ $("ganttScroll").addEventListener("mousemove", e => {
     html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
       <div class="tt-sub">${dot.dataset.date}（${WD[parseD(dot.dataset.date).getDay()]}）的執行紀錄</div>
       <ul>${items.map(l => `<li>${esc(l.text || "（進度更新）")}${l.progress != null ? `　→ 進度 ${l.progress}%` : ""}</li>`).join("")}</ul>`;
+  } else if (todo) {
+    const p = projectById(todo.dataset.pid);
+    const items = state.todos.filter(t => !t.done && t.projectId === todo.dataset.pid && t.date === todo.dataset.date);
+    html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
+      <div class="tt-sub">${todo.dataset.date}（${WD[parseD(todo.dataset.date).getDay()]}）的待辦事項</div>
+      <ul>${items.map(t => `<li>${esc(t.text)}</li>`).join("")}</ul>`;
   } else if (cell) {
     const p = projectById(cell.dataset.pid);
     const remain = diffDays(todayStr(), p.end);
@@ -997,9 +1099,12 @@ function saveProject(e) {
 function deleteProject() {
   const p = projectById(editingProjectId);
   const n = state.logs.filter(l => l.projectId === editingProjectId).length;
-  if (!confirm(`確定刪除「${p.name}」？${n ? `其 ${n} 筆每日紀錄也會一併刪除。` : ""}`)) return;
+  const todoN = state.todos.filter(t => t.projectId === editingProjectId).length;
+  const related = [n ? `${n} 筆每日紀錄` : "", todoN ? `${todoN} 筆待辦` : ""].filter(Boolean).join("、");
+  if (!confirm(`確定刪除「${p.name}」？${related ? `${related} 也會一併刪除。` : ""}`)) return;
   state.projects = state.projects.filter(x => x.id !== editingProjectId);
   state.logs = state.logs.filter(l => l.projectId !== editingProjectId);
+  state.todos = state.todos.filter(t => t.projectId !== editingProjectId);
   projectDialog.close();
   refresh();
 }
@@ -1021,6 +1126,7 @@ function openLogDialog(projectId, date) {
   $("ldDate").value = date || todayStr();
   $("ldText").value = "";
   $("ldProgress").value = "";
+  $("ldTodo").value = "";
   renderDayLogs();
   logDialog.showModal();
   $("ldText").focus();
@@ -1029,11 +1135,14 @@ function openLogDialog(projectId, date) {
 function renderDayLogs() {
   const pid = $("ldProject").value, date = $("ldDate").value;
   const items = state.logs.filter(l => l.projectId === pid && l.date === date);
+  const todos = state.todos.filter(t => !t.done && t.projectId === pid && t.date === date);
   const box = $("ldExisting");
-  if (items.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
+  if (items.length === 0 && todos.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
   box.style.display = "";
-  box.innerHTML = `<h4>${date} 已有的紀錄</h4>` + items.map(l =>
+  box.innerHTML = `<h4>${date} 已有內容</h4>` + items.map(l =>
     `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
+  ).join("") + todos.map(t =>
+    `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}</span><button type="button" onclick="completeTodo('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
   ).join("");
 }
 
@@ -1060,7 +1169,22 @@ function saveLog(e) {
   renderGantt();
   renderWeek();
   renderProjectView();
+  renderTodos();
   toast("已記錄 ✓ 甘特圖已更新");
+  return false;
+}
+
+function saveTodo(e) {
+  e.preventDefault();
+  const text = $("ldTodo").value.trim();
+  if (!text) { toast("請輸入預計要做的事情"); return false; }
+  state.todos.push({ id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text, done: false });
+  $("ldTodo").value = "";
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderTodos();
+  toast("已新增待辦 ✓");
   return false;
 }
 
@@ -1071,6 +1195,61 @@ function deleteLog(id) {
   renderGantt();
   renderWeek();
   renderProjectView();
+  renderTodos();
+}
+
+function deleteTodo(id) {
+  state.todos = state.todos.filter(t => t.id !== id);
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderTodos();
+}
+
+function completeTodo(id) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  state.logs.push({ id: uid(), date: t.date, projectId: t.projectId, text: t.text });
+  state.todos = state.todos.filter(x => x.id !== id);
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderWeek();
+  renderProjectView();
+  renderTodos();
+  toast("已完成待辦，並加入完成紀錄 ✓");
+}
+
+function renderTodos() {
+  const list = $("todoList");
+  const summary = $("todoSummary");
+  if (!list || !summary) return;
+  const openTodos = state.todos
+    .filter(t => !t.done && projectById(t.projectId))
+    .sort((a, b) => a.date.localeCompare(b.date) || projectById(a.projectId).start.localeCompare(projectById(b.projectId).start));
+
+  summary.textContent = openTodos.length ? `${openTodos.length} 件未完成` : "目前沒有待辦";
+  if (!openTodos.length) {
+    list.innerHTML = `<div class="empty-state" style="padding:28px 16px"><p>沒有未完成的待辦事項。</p></div>`;
+    return;
+  }
+
+  list.innerHTML = openTodos.map(t => {
+    const p = projectById(t.projectId);
+    const overdue = t.date < todayStr();
+    return `<div class="todo-item">
+      <div class="todo-date">${shortD(t.date)}（${WD[parseD(t.date).getDay()]}）${overdue ? "<br>已過期" : ""}</div>
+      <div class="todo-main">
+        <div class="todo-project"><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</div>
+        <div class="todo-text">${esc(t.text)}</div>
+      </div>
+      <div class="todo-actions">
+        <button type="button" onclick="openLogDialog('${t.projectId}', '${t.date}')">查看</button>
+        <button type="button" onclick="completeTodo('${t.id}')">完成</button>
+        <button type="button" class="danger" onclick="deleteTodo('${t.id}')">刪除</button>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 /* ============ 週報 ============ */
@@ -1170,9 +1349,8 @@ function copyWeekReport() {
 
 /* ============ 專案檢視 ============ */
 let projectFilterAll = true;
-let weekFilterAll = true;
 const selectedProjectIds = new Set();
-const selectedWeekStarts = new Set();
+const selectedProjectWeeks = new Map(); // projectId -> Set<weekStart>; no entry means all weeks
 
 function activeProjectIds() {
   const ids = sortedProjects().map(p => p.id);
@@ -1180,11 +1358,11 @@ function activeProjectIds() {
   return new Set(ids.filter(id => selectedProjectIds.has(id)));
 }
 
-function projectWeekOptions(projectIds) {
+function projectWeekOptions(projectId) {
   const today = todayStr();
   const weeks = new Map();
   for (const l of state.logs) {
-    if (l.date > today || !projectIds.has(l.projectId) || !projectById(l.projectId)) continue;
+    if (l.date > today || l.projectId !== projectId || !projectById(l.projectId)) continue;
     const ws = weekStartOf(l.date);
     if (!weeks.has(ws)) weeks.set(ws, { ws, end: addDays(ws, 6), count: 0 });
     weeks.get(ws).count++;
@@ -1192,23 +1370,18 @@ function projectWeekOptions(projectIds) {
   return [...weeks.values()].sort((a, b) => b.ws.localeCompare(a.ws));
 }
 
-function activeWeekStarts(options) {
-  const starts = options.map(w => w.ws);
-  if (weekFilterAll) return new Set(starts);
-  return new Set(starts.filter(ws => selectedWeekStarts.has(ws)));
+function activeWeeksForProject(projectId, options = projectWeekOptions(projectId)) {
+  const valid = new Set(options.map(w => w.ws));
+  const selected = selectedProjectWeeks.get(projectId);
+  if (!selected) return valid;
+  for (const ws of [...selected]) if (!valid.has(ws)) selected.delete(ws);
+  return new Set([...valid].filter(ws => selected.has(ws)));
 }
 
 function setAllProjectFilters(checked) {
   projectFilterAll = checked;
   selectedProjectIds.clear();
   if (checked) for (const p of state.projects) selectedProjectIds.add(p.id);
-  renderProjectView();
-}
-
-function setAllWeekFilters(checked) {
-  weekFilterAll = checked;
-  selectedWeekStarts.clear();
-  if (checked) for (const w of projectWeekOptions(activeProjectIds())) selectedWeekStarts.add(w.ws);
   renderProjectView();
 }
 
@@ -1220,26 +1393,32 @@ function toggleProjectFilter(id, checked) {
   }
   if (checked) selectedProjectIds.add(id);
   else selectedProjectIds.delete(id);
-  weekFilterAll = true;
-  selectedWeekStarts.clear();
   renderProjectView();
 }
 
-function toggleWeekFilter(ws, checked) {
-  if (weekFilterAll) {
-    selectedWeekStarts.clear();
-    for (const w of projectWeekOptions(activeProjectIds())) selectedWeekStarts.add(w.ws);
-    weekFilterAll = false;
+function setAllProjectWeeks(projectId, checked) {
+  if (checked) selectedProjectWeeks.delete(projectId);
+  else selectedProjectWeeks.set(projectId, new Set());
+  renderProjectView();
+}
+
+function toggleProjectWeek(projectId, ws, checked) {
+  const options = projectWeekOptions(projectId);
+  let selected = selectedProjectWeeks.get(projectId);
+  if (!selected) {
+    selected = new Set(options.map(w => w.ws));
+    selectedProjectWeeks.set(projectId, selected);
   }
-  if (checked) selectedWeekStarts.add(ws);
-  else selectedWeekStarts.delete(ws);
+  if (checked) selected.add(ws);
+  else selected.delete(ws);
+  if (selected.size === options.length) selectedProjectWeeks.delete(projectId);
   renderProjectView();
 }
 
-function projectEntries(projectIds, weekStarts) {
+function projectEntries(projectIds, weekMap) {
   const today = todayStr();
   return state.logs
-    .filter(l => l.date <= today && projectIds.has(l.projectId) && weekStarts.has(weekStartOf(l.date)))
+    .filter(l => l.date <= today && projectIds.has(l.projectId) && (weekMap.get(l.projectId) || new Set()).has(weekStartOf(l.date)))
     .map(l => ({ ...l, project: projectById(l.projectId), ws: weekStartOf(l.date) }))
     .filter(l => l.project)
     .sort((a, b) => a.project.start.localeCompare(b.project.start) || a.date.localeCompare(b.date));
@@ -1247,13 +1426,11 @@ function projectEntries(projectIds, weekStarts) {
 
 function renderProjectView() {
   const projectList = $("projectFilterList");
-  const weekList = $("weekFilterList");
   const results = $("projectResults");
-  if (!projectList || !weekList || !results) return;
+  if (!projectList || !results) return;
 
   if (state.projects.length === 0) {
     projectList.innerHTML = "";
-    weekList.innerHTML = "";
     results.innerHTML = `<div class="empty-state">
       <p>還沒有任何專案。建立專案並記錄進度後，這裡會依專案整理已完成事項。</p>
       <button class="primary" onclick="openProjectDialog()">＋ 新增第一個專案</button>
@@ -1264,12 +1441,13 @@ function renderProjectView() {
   const projects = sortedProjects();
   const validIds = new Set(projects.map(p => p.id));
   for (const id of [...selectedProjectIds]) if (!validIds.has(id)) selectedProjectIds.delete(id);
+  for (const id of [...selectedProjectWeeks.keys()]) if (!validIds.has(id)) selectedProjectWeeks.delete(id);
   const checkedProjects = activeProjectIds();
-  const weekOptions = projectWeekOptions(checkedProjects);
-  const validWeeks = new Set(weekOptions.map(w => w.ws));
-  for (const ws of [...selectedWeekStarts]) if (!validWeeks.has(ws)) selectedWeekStarts.delete(ws);
-  const checkedWeeks = activeWeekStarts(weekOptions);
-  const entries = projectEntries(checkedProjects, checkedWeeks);
+  const weekMap = new Map();
+  for (const p of projects.filter(p => checkedProjects.has(p.id))) {
+    weekMap.set(p.id, activeWeeksForProject(p.id));
+  }
+  const entries = projectEntries(checkedProjects, weekMap);
 
   projectList.innerHTML = projects.map(p => {
     const n = state.logs.filter(l => l.projectId === p.id && l.date <= todayStr()).length;
@@ -1282,36 +1460,48 @@ function renderProjectView() {
     </label>`;
   }).join("");
 
-  weekList.innerHTML = weekOptions.length ? weekOptions.map(w => {
-    const checked = weekFilterAll || selectedWeekStarts.has(w.ws);
-    return `<label class="check-row">
-      <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleWeekFilter('${w.ws}', this.checked)">
-      <span class="txt">${weekCode(w.ws)}・${shortD(w.ws)} – ${shortD(w.end)}</span>
-      <span class="sub">${w.count}</span>
-    </label>`;
-  }).join("") : `<div class="r-none">選取的專案目前沒有紀錄</div>`;
-
   const selectedProjectCount = checkedProjects.size;
-  const selectedWeekCount = checkedWeeks.size;
+  const selectedWeekCount = [...weekMap.values()].reduce((sum, weeks) => sum + weeks.size, 0);
   let html = `<div class="project-results-head">
     <h2>專案完成事項</h2>
-    <span class="summary">${selectedProjectCount} 個專案・${selectedWeekCount} 週・${entries.length} 筆紀錄</span>
+    <span class="summary">${selectedProjectCount} 個專案・${selectedWeekCount} 個專案週別・${entries.length} 筆紀錄</span>
   </div>`;
 
-  if (entries.length === 0) {
-    html += `<div class="empty-state"><p>目前篩選條件下沒有可列出的事項。</p></div>`;
+  if (selectedProjectCount === 0) {
+    html += `<div class="empty-state"><p>請先在左側勾選至少一個專案。</p></div>`;
     results.innerHTML = html;
     return;
   }
 
   for (const p of projects.filter(p => checkedProjects.has(p.id))) {
+    const weekOptions = projectWeekOptions(p.id);
+    const checkedWeeks = weekMap.get(p.id) || new Set();
     const pEntries = entries.filter(l => l.projectId === p.id);
-    if (!pEntries.length) continue;
     const prog = currentProgress(p.id);
     html += `<section class="project-block">
       <h3><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}
         <span class="meta">${shortD(p.start)} – ${shortD(p.end)}${prog != null ? `・${prog}%` : ""}</span>
       </h3>`;
+
+    if (weekOptions.length) {
+      html += `<div class="project-week-picker">
+        <button type="button" onclick="setAllProjectWeeks('${p.id}', true)">全選</button>
+        <button type="button" onclick="setAllProjectWeeks('${p.id}', false)">清除</button>
+        ${weekOptions.map(w => `<label class="week-check">
+          <input type="checkbox" ${checkedWeeks.has(w.ws) ? "checked" : ""} onchange="toggleProjectWeek('${p.id}', '${w.ws}', this.checked)">
+          ${weekCode(w.ws)}・${shortD(w.ws)} – ${shortD(w.end)}
+        </label>`).join("")}
+      </div>`;
+    } else {
+      html += `<div class="r-none">這個專案目前沒有紀錄</div>`;
+    }
+
+    if (!pEntries.length) {
+      if (weekOptions.length) html += `<div class="r-none">這個專案目前勾選的週別沒有可列出的事項</div>`;
+      html += `</section>`;
+      continue;
+    }
+
     const weeks = [...new Set(pEntries.map(l => l.ws))].sort();
     for (const ws of weeks) {
       const weekEntries = pEntries.filter(l => l.ws === ws);
@@ -1349,8 +1539,9 @@ function importData(ev) {
     try {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data.projects) || !Array.isArray(data.logs)) throw new Error("格式不符");
-      if (!confirm(`匯入將取代目前的資料（${data.projects.length} 個專案、${data.logs.length} 筆紀錄）。確定？`)) return;
-      state = data;
+      const next = normalizeState(data);
+      if (!confirm(`匯入將取代目前的資料（${next.projects.length} 個專案、${next.logs.length} 筆紀錄、${next.todos.length} 筆待辦）。確定？`)) return;
+      state = next;
       refresh();
       toast("匯入成功 ✓");
     } catch (e) {
@@ -1382,6 +1573,11 @@ function loadSampleData() {
       { id: uid(), date: addDays(t, -20), projectId: p3, text: "規劃課程大綱" },
       { id: uid(), date: addDays(t, -14), projectId: p3, text: "第一場課程：Git 基礎" },
       { id: uid(), date: addDays(t, -8), projectId: p3, text: "第二場課程與問卷回收" },
+    ],
+    todos: [
+      { id: uid(), date: addDays(t, 1), projectId: p1, text: "檢查手機版首頁間距與表單驗證", done: false },
+      { id: uid(), date: addDays(t, 3), projectId: p1, text: "整理客戶回饋並排定修正項目", done: false },
+      { id: uid(), date: addDays(t, 2), projectId: p2, text: "補上提案簡報的時程與報價頁", done: false },
     ],
   };
   refresh();
@@ -1459,11 +1655,8 @@ function enterGuest() {
   localStorage.setItem(GUEST_KEY, "1");
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    state = {
-      projects: (raw && Array.isArray(raw.projects)) ? raw.projects : [],
-      logs: (raw && Array.isArray(raw.logs)) ? raw.logs : [],
-    };
-  } catch (e) { state = { projects: [], logs: [] }; }
+    state = normalizeState(raw);
+  } catch (e) { state = normalizeState(null); }
   $("loginOverlay").style.display = "none";
 
   const chip = $("userChip");
@@ -1474,6 +1667,7 @@ function enterGuest() {
   renderGantt();
   renderWeek();
   renderProjectView();
+  renderTodos();
 }
 
 /* 訪客模式中點「登入」：重新顯示登入畫面（按「先不登入」即可返回） */
@@ -1483,7 +1677,7 @@ function switchToLogin() {
 }
 
 async function enterApp() {
-  state = await api("/api/state");
+  state = normalizeState(await api("/api/state"));
   $("loginOverlay").style.display = "none";
 
   // 顯示使用者資訊
@@ -1494,12 +1688,13 @@ async function enterApp() {
     <button type="button" onclick="logout()">登出</button>`;
 
   // 帳號還沒有資料時，若這個瀏覽器有本機資料（訪客模式或舊版），提議匯入
-  if (state.projects.length === 0 && state.logs.length === 0) {
+  if (state.projects.length === 0 && state.logs.length === 0 && state.todos.length === 0) {
     try {
       const old = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-      if (old && ((old.projects || []).length || (old.logs || []).length)) {
-        if (confirm(`這個瀏覽器有未登入時的本機資料（${(old.projects || []).length} 個專案、${(old.logs || []).length} 筆紀錄），要匯入你的帳號嗎？`)) {
-          state = { projects: old.projects || [], logs: old.logs || [] };
+      const local = normalizeState(old);
+      if (local.projects.length || local.logs.length || local.todos.length) {
+        if (confirm(`這個瀏覽器有未登入時的本機資料（${local.projects.length} 個專案、${local.logs.length} 筆紀錄、${local.todos.length} 筆待辦），要匯入你的帳號嗎？`)) {
+          state = local;
           save();
           localStorage.removeItem(STORE_KEY);
         }
@@ -1510,6 +1705,7 @@ async function enterApp() {
   renderGantt();
   renderWeek();
   renderProjectView();
+  renderTodos();
 }
 
 async function logout() {
