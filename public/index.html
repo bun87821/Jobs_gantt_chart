@@ -134,6 +134,19 @@
     position: relative;
   }
   .g-month span { position: sticky; left: 226px; }
+  .g-wk {
+    flex: none;
+    text-align: center;
+    border-right: 1px solid var(--grid);
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 0;
+    white-space: nowrap; overflow: hidden;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .g-wk:hover { background: var(--hover-wash); color: var(--text-primary); }
+  .g-wk.cur { background: var(--today-bg); color: var(--accent); font-weight: 600; }
   .g-day {
     width: var(--dw);
     flex: none;
@@ -570,6 +583,21 @@ const WD = ["日", "一", "二", "三", "四", "五", "六"];
 function mondayOf(s) { const d = parseD(s); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); return fmtD(d); }
 function shortD(s) { const d = parseD(s); return (d.getMonth() + 1) + "/" + d.getDate(); }
 
+/* ISO 週數（週一起算，跨年週歸屬含週四的那一年） */
+function isoWeek(s) {
+  const d = parseD(s);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // 移到本週四
+  const year = d.getFullYear();
+  const week1Thu = new Date(year, 0, 4);
+  week1Thu.setDate(week1Thu.getDate() + 3 - ((week1Thu.getDay() + 6) % 7));
+  return { year, week: 1 + Math.round((d - week1Thu) / 604800000) };
+}
+/* 週碼：W + 年份末碼 + 兩位週數，例：2026 第 28 週 → W628 */
+function weekCode(s) {
+  const { year, week } = isoWeek(s);
+  return `W${year % 10}${String(week).padStart(2, "0")}`;
+}
+
 /* ============ 共用 ============ */
 const $ = id => document.getElementById(id);
 function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
@@ -661,6 +689,22 @@ function renderGantt() {
     }
   }
 
+  // 表頭：週碼列（W + 年末碼 + 週數；每格為週一到週日，點擊可跳到該週週報）
+  let weekCells = "";
+  {
+    const curMonday = mondayOf(today);
+    let i = 0;
+    while (i < nDays) {
+      const ds = addDays(min, i);
+      const dow = (parseD(ds).getDay() + 6) % 7; // 0 = 週一
+      const span = Math.min(7 - dow, nDays - i);
+      const code = weekCode(ds);
+      const mon = mondayOf(ds);
+      weekCells += `<div class="g-wk ${mon === curMonday ? "cur" : ""}" style="width:${span * DW}px" data-ws="${mon}" title="${code}（點擊查看該週週報）">${span >= 2 ? code : ""}</div>`;
+      i += span;
+    }
+  }
+
   // 表頭：日期列
   let dayCells = "";
   for (let i = 0; i < nDays; i++) {
@@ -733,6 +777,10 @@ function renderGantt() {
       </div>
       <div class="g-headrow g-row">
         <div class="g-namecol" style="grid-row:2"></div>
+        <div class="g-timeline">${weekCells}</div>
+      </div>
+      <div class="g-headrow g-row">
+        <div class="g-namecol" style="grid-row:3"></div>
         <div class="g-timeline">${dayCells}</div>
       </div>
       ${rows}
@@ -753,6 +801,8 @@ function scrollToToday() {
 $("ganttScroll").addEventListener("click", e => {
   const dot = e.target.closest(".g-dot");
   if (dot) { openLogDialog(dot.dataset.pid, dot.dataset.date); return; }
+  const wk = e.target.closest(".g-wk");
+  if (wk) { weekStart = wk.dataset.ws; switchView("week"); renderWeek(); return; }
   const cell = e.target.closest(".g-cell");
   if (cell) openLogDialog(cell.dataset.pid, cell.dataset.date);
 });
@@ -940,7 +990,7 @@ function weekData() {
 
 function renderWeek() {
   const { days, weekEnd, ongoing } = weekData();
-  $("weekTitle").textContent = `${weekStart.replaceAll("-", "/")} – ${shortD(weekEnd)}`;
+  $("weekTitle").textContent = `${weekCode(weekStart)}・${weekStart.replaceAll("-", "/")} – ${shortD(weekEnd)}`;
   const today = todayStr();
 
   let html = "";
@@ -979,7 +1029,7 @@ function renderWeek() {
 
 function copyWeekReport() {
   const { days, weekEnd, ongoing } = weekData();
-  let txt = `週報 ${weekStart.replaceAll("-", "/")} – ${weekEnd.replaceAll("-", "/")}\n\n`;
+  let txt = `週報 ${weekCode(weekStart)}（${weekStart.replaceAll("-", "/")} – ${weekEnd.replaceAll("-", "/")}）\n\n`;
   for (const { ds, entries } of days) {
     txt += `【${shortD(ds)}（${WD[parseD(ds).getDay()]}）】\n`;
     if (entries.length === 0) txt += `- （無紀錄）\n`;
