@@ -225,12 +225,24 @@
     cursor: pointer;
   }
   .g-row .g-namecol:hover { background: var(--hover-wash); }
+  .g-row .g-namecol.dragging { opacity: .55; }
+  .g-row .g-namecol.drop-target { background: var(--today-bg); }
   .g-row .g-timeline { border-bottom: 1px solid var(--grid); height: 46px; }
   .p-name {
     display: flex; align-items: center; gap: 7px;
     font-weight: 600; font-size: 13.5px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .drag-handle {
+    color: var(--text-muted);
+    cursor: grab;
+    flex: none;
+    font-size: 14px;
+    line-height: 1;
+    touch-action: none;
+    user-select: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
   .p-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
   .p-dates { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
   .p-status { font-size: 11px; margin-left: 6px; font-weight: 500; }
@@ -770,6 +782,7 @@ async function api(url, opts = {}) {
 let saveTimer = null, saveDirty = false, saveRetry = null;
 
 function save() {
+  ensureProjectOrder();
   if (guestMode) {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
     setSaveStatus("已存在此裝置 ✓", true);
@@ -818,11 +831,25 @@ document.addEventListener("visibilitychange", () => {
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function normalizeState(data) {
-  return {
+  const next = {
     projects: data && Array.isArray(data.projects) ? data.projects : [],
     logs: data && Array.isArray(data.logs) ? data.logs : [],
     todos: data && Array.isArray(data.todos) ? data.todos : [],
   };
+  ensureProjectOrder(next.projects);
+  return next;
+}
+
+function ensureProjectOrder(projects = state.projects) {
+  const needsOrder = projects.some(p => !Number.isFinite(p.order));
+  const ordered = [...projects].sort((a, b) => {
+    const ao = Number.isFinite(a.order) ? a.order : Infinity;
+    const bo = Number.isFinite(b.order) ? b.order : Infinity;
+    return ao - bo || a.start.localeCompare(b.start) || a.name.localeCompare(b.name);
+  });
+  ordered.forEach((p, i) => {
+    if (needsOrder || p.order !== i) p.order = i;
+  });
 }
 
 /* ============ 日期工具（皆為本地時區、YYYY-MM-DD 字串） ============ */
@@ -859,7 +886,8 @@ function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(
 function slotColor(i) { return `var(--s${(i % SLOT_COUNT) + 1})`; }
 function projectById(id) { return state.projects.find(p => p.id === id); }
 function sortedProjects() {
-  return [...state.projects].sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
+  ensureProjectOrder();
+  return [...state.projects].sort((a, b) => a.order - b.order || a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
 }
 const STATUS_LABEL = { active: "進行中", done: "已完成 ✓", paused: "暫停" };
 
@@ -1056,8 +1084,8 @@ function renderGantt() {
     const progTxt = (prog != null && p.status !== "done") ? `・目前 ${prog}%` : "";
     rows += `
       <div class="g-row">
-        <div class="g-namecol" onclick="openProjectDialog('${p.id}')" title="點擊編輯專案">
-          <div class="p-name"><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
+        <div class="g-namecol" draggable="true" data-pid="${p.id}" onclick="if (!window.justDraggedProject && !event.target.closest('.drag-handle')) openProjectDialog('${p.id}')" title="拖移可調整順序；點擊可編輯專案">
+          <div class="p-name"><span class="drag-handle" title="拖移排序">↕</span><span class="p-swatch" style="background:${color}"></span>${esc(p.name)}${statusTxt}</div>
           <div class="p-dates">${shortD(p.start)} – ${shortD(p.end)}（${diffDays(p.start, p.end) + 1} 天）${progTxt}</div>
         </div>
         <div class="g-timeline">${cells}${bar}${dots}${todos}</div>
@@ -1092,7 +1120,118 @@ function scrollToToday() {
   wrap.scrollLeft = Math.max(0, idx * DW - wrap.clientWidth / 2 + 113);
 }
 
+function reorderProject(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const ordered = sortedProjects();
+  const from = ordered.findIndex(p => p.id === dragId);
+  const to = ordered.findIndex(p => p.id === targetId);
+  if (from < 0 || to < 0) return;
+  const [moved] = ordered.splice(from, 1);
+  ordered.splice(to, 0, moved);
+  ordered.forEach((p, i) => { p.order = i; });
+  save();
+  renderGantt();
+  renderProjectView();
+  toast("已更新專案順序 ✓");
+}
+
 /* 甘特圖互動：點格子補記、hover 圓點/長條顯示 tooltip */
+let draggingProjectId = null;
+let pointerProjectId = null;
+let pointerStartY = 0;
+let pointerDidMove = false;
+window.justDraggedProject = false;
+
+function clearProjectDropState() {
+  document.querySelectorAll(".g-namecol.dragging, .g-namecol.drop-target").forEach(el => el.classList.remove("dragging", "drop-target"));
+}
+
+function markProjectDropTarget(x, y) {
+  document.querySelectorAll(".g-namecol.drop-target").forEach(el => el.classList.remove("drop-target"));
+  const el = document.elementFromPoint(x, y);
+  const row = el && el.closest(".g-namecol[data-pid]");
+  if (row && row.dataset.pid !== pointerProjectId) row.classList.add("drop-target");
+  return row;
+}
+
+$("ganttScroll").addEventListener("pointerdown", e => {
+  const handle = e.target.closest(".drag-handle");
+  if (!handle) return;
+  const row = handle.closest(".g-namecol[data-pid]");
+  if (!row) return;
+  pointerProjectId = row.dataset.pid;
+  pointerStartY = e.clientY;
+  pointerDidMove = false;
+  row.classList.add("dragging");
+  handle.setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+});
+
+$("ganttScroll").addEventListener("pointermove", e => {
+  if (!pointerProjectId) return;
+  if (Math.abs(e.clientY - pointerStartY) > 6) pointerDidMove = true;
+  if (pointerDidMove) markProjectDropTarget(e.clientX, e.clientY);
+});
+
+$("ganttScroll").addEventListener("pointerup", e => {
+  if (!pointerProjectId) return;
+  const target = pointerDidMove ? markProjectDropTarget(e.clientX, e.clientY) : null;
+  const dragId = pointerProjectId;
+  pointerProjectId = null;
+  clearProjectDropState();
+  if (target && target.dataset.pid !== dragId) {
+    window.justDraggedProject = true;
+    setTimeout(() => { window.justDraggedProject = false; }, 0);
+    reorderProject(dragId, target.dataset.pid);
+  }
+});
+
+$("ganttScroll").addEventListener("pointercancel", () => {
+  pointerProjectId = null;
+  clearProjectDropState();
+});
+
+$("ganttScroll").addEventListener("dragstart", e => {
+  const row = e.target.closest(".g-namecol[data-pid]");
+  if (!row) return;
+  draggingProjectId = row.dataset.pid;
+  row.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", draggingProjectId);
+});
+
+$("ganttScroll").addEventListener("dragover", e => {
+  const row = e.target.closest(".g-namecol[data-pid]");
+  if (!row || !draggingProjectId || row.dataset.pid === draggingProjectId) return;
+  e.preventDefault();
+  row.classList.add("drop-target");
+});
+
+$("ganttScroll").addEventListener("dragleave", e => {
+  const row = e.target.closest(".g-namecol[data-pid]");
+  if (row) row.classList.remove("drop-target");
+});
+
+$("ganttScroll").addEventListener("drop", e => {
+  const row = e.target.closest(".g-namecol[data-pid]");
+  if (!row) return;
+  e.preventDefault();
+  const dragId = e.dataTransfer.getData("text/plain") || draggingProjectId;
+  const targetId = row.dataset.pid;
+  clearProjectDropState();
+  draggingProjectId = null;
+  window.justDraggedProject = true;
+  setTimeout(() => { window.justDraggedProject = false; }, 0);
+  reorderProject(dragId, targetId);
+});
+
+$("ganttScroll").addEventListener("dragend", () => {
+  draggingProjectId = null;
+  window.justDraggedProject = true;
+  setTimeout(() => { window.justDraggedProject = false; }, 0);
+  clearProjectDropState();
+});
+
 $("ganttScroll").addEventListener("click", e => {
   const dot = e.target.closest(".g-dot");
   if (dot) { openLogDialog(dot.dataset.pid, dot.dataset.date); return; }
@@ -1179,7 +1318,7 @@ function saveProject(e) {
     let slot = 0;
     while (usedSlots.includes(slot % SLOT_COUNT) && slot < SLOT_COUNT) slot++;
     if (slot >= SLOT_COUNT) slot = state.projects.length % SLOT_COUNT;
-    state.projects.push({ id: uid(), name, start, end, status: $("pdStatus").value, slot });
+    state.projects.push({ id: uid(), name, start, end, status: $("pdStatus").value, slot, order: state.projects.length });
   }
   projectDialog.close();
   refresh();
@@ -1676,9 +1815,9 @@ function loadSampleData() {
   const p1 = uid(), p2 = uid(), p3 = uid();
   state = {
     projects: [
-      { id: p1, name: "官網改版", start: addDays(t, -12), end: addDays(t, 9), status: "active", slot: 0 },
-      { id: p2, name: "客戶 A 提案", start: addDays(t, -5), end: addDays(t, 3), status: "active", slot: 1 },
-      { id: p3, name: "內部教育訓練", start: addDays(t, -20), end: addDays(t, -8), status: "done", slot: 2 },
+      { id: p1, name: "官網改版", start: addDays(t, -12), end: addDays(t, 9), status: "active", slot: 0, order: 0 },
+      { id: p2, name: "客戶 A 提案", start: addDays(t, -5), end: addDays(t, 3), status: "active", slot: 1, order: 1 },
+      { id: p3, name: "內部教育訓練", start: addDays(t, -20), end: addDays(t, -8), status: "done", slot: 2, order: 2 },
     ],
     logs: [
       { id: uid(), date: addDays(t, -12), projectId: p1, text: "確認需求與網站架構" },
