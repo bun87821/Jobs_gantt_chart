@@ -707,6 +707,10 @@
           <option value="paused">暫停</option>
         </select>
       </div>
+      <div class="field">
+        <label for="pdMemo">MEMO（只在這裡顯示，不會進週報或專案頁）</label>
+        <textarea id="pdMemo" placeholder="例：客戶偏好、注意事項、內部備註"></textarea>
+      </div>
     </div>
     <div class="dlg-foot">
       <button type="button" class="danger left" id="pdDelete" onclick="deleteProject()">刪除專案</button>
@@ -748,7 +752,7 @@
     <div class="dlg-foot">
       <button type="button" onclick="logDialog.close()">關閉</button>
       <button type="button" onclick="return saveTodo(event)">新增待辦</button>
-      <button class="primary" value="save" onclick="return saveLog(event)">新增紀錄</button>
+      <button class="primary" id="ldSaveLog" value="save" onclick="return saveLog(event)">新增紀錄</button>
     </div>
   </form>
 </dialog>
@@ -1299,11 +1303,13 @@ function openProjectDialog(id) {
     $("pdStart").value = p.start;
     $("pdEnd").value = p.end;
     $("pdStatus").value = p.status;
+    $("pdMemo").value = p.memo || "";
   } else {
     $("pdName").value = "";
     $("pdStart").value = todayStr();
     $("pdEnd").value = addDays(todayStr(), 13);
     $("pdStatus").value = "active";
+    $("pdMemo").value = "";
   }
   projectDialog.showModal();
 }
@@ -1312,16 +1318,17 @@ function saveProject(e) {
   e.preventDefault();
   const name = $("pdName").value.trim();
   const start = $("pdStart").value, end = $("pdEnd").value;
+  const memo = $("pdMemo").value.trim();
   if (!name || !start || !end) { toast("請填寫名稱與日期"); return false; }
   if (end < start) { toast("預計完成日不能早於開始日"); return false; }
   if (editingProjectId) {
-    Object.assign(projectById(editingProjectId), { name, start, end, status: $("pdStatus").value });
+    Object.assign(projectById(editingProjectId), { name, start, end, status: $("pdStatus").value, memo });
   } else {
     const usedSlots = state.projects.map(p => p.slot % SLOT_COUNT);
     let slot = 0;
     while (usedSlots.includes(slot % SLOT_COUNT) && slot < SLOT_COUNT) slot++;
     if (slot >= SLOT_COUNT) slot = state.projects.length % SLOT_COUNT;
-    state.projects.push({ id: uid(), name, start, end, status: $("pdStatus").value, slot, order: state.projects.length });
+    state.projects.push({ id: uid(), name, start, end, status: $("pdStatus").value, memo, slot, order: state.projects.length });
   }
   projectDialog.close();
   refresh();
@@ -1343,6 +1350,13 @@ function deleteProject() {
 
 /* ============ 進度紀錄對話框 ============ */
 const logDialog = $("logDialog");
+let editingLogId = null;
+
+function resetLogEdit() {
+  editingLogId = null;
+  const btn = $("ldSaveLog");
+  if (btn) btn.textContent = "新增紀錄";
+}
 
 function openLogDialog(projectId, date) {
   if (state.projects.length === 0) {
@@ -1359,6 +1373,7 @@ function openLogDialog(projectId, date) {
   $("ldText").value = "";
   $("ldProgress").value = "";
   $("ldTodo").value = "";
+  resetLogEdit();
   renderDayLogs();
   logDialog.showModal();
   $("ldText").focus();
@@ -1372,7 +1387,7 @@ function renderDayLogs() {
   if (items.length === 0 && todos.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
   box.style.display = "";
   box.innerHTML = `<h4>${date} 已有內容</h4>` + items.map(l =>
-    `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="convertLogToTodo('${l.id}')">轉待辦</button><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
+    `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="editLog('${l.id}')">編輯</button><button type="button" onclick="convertLogToTodo('${l.id}')">轉待辦</button><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
   ).join("") + todos.map(t =>
     `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}</span><button type="button" onclick="completeTodoWithPrompt('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
   ).join("");
@@ -1391,19 +1406,41 @@ function saveLog(e) {
     }
   }
   if (!text && progress === null) { toast("請輸入執行內容，或至少填進度 %"); return false; }
-  const entry = { id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text };
-  if (progress !== null) entry.progress = progress;
-  state.logs.push(entry);
+  const wasEditing = !!editingLogId;
+  if (editingLogId) {
+    const existing = state.logs.find(l => l.id === editingLogId);
+    if (!existing) { resetLogEdit(); toast("找不到要更新的紀錄"); return false; }
+    Object.assign(existing, { date: $("ldDate").value, projectId: $("ldProject").value, text });
+    if (progress !== null) existing.progress = progress;
+    else delete existing.progress;
+  } else {
+    const entry = { id: uid(), date: $("ldDate").value, projectId: $("ldProject").value, text };
+    if (progress !== null) entry.progress = progress;
+    state.logs.push(entry);
+  }
   $("ldText").value = "";
   $("ldProgress").value = "";
+  resetLogEdit();
   save();
   renderDayLogs();
   renderGantt();
   renderWeek();
   renderProjectView();
   renderTodos();
-  toast("已記錄 ✓ 甘特圖已更新");
+  toast(wasEditing ? "已更新紀錄 ✓" : "已記錄 ✓ 甘特圖已更新");
   return false;
+}
+
+function editLog(id) {
+  const l = state.logs.find(x => x.id === id);
+  if (!l) return;
+  editingLogId = id;
+  $("ldDate").value = l.date;
+  $("ldProject").value = l.projectId;
+  $("ldText").value = l.text || "";
+  $("ldProgress").value = l.progress != null ? l.progress : "";
+  $("ldSaveLog").textContent = "更新紀錄";
+  $("ldText").focus();
 }
 
 function saveTodo(e) {
