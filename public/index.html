@@ -290,8 +290,8 @@
     opacity: 0.92;
     pointer-events: none;
   }
-  .g-bar.done { opacity: 0.45; }
-  /* 有進度 % 的專案：空心軌道 + 實心已完成段 */
+  .g-bar.done { opacity: 0.92; }
+  /* 未完成且有進度 % 的專案：空心軌道 + 實心已完成段 */
   .g-bar.track { background: color-mix(in srgb, var(--c) 22%, transparent); opacity: 1; }
   .g-fill {
     position: absolute; top: 0; bottom: 0; left: 0;
@@ -1172,20 +1172,21 @@ function renderGantt() {
       cells += `<div class="${cls}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
 
-    // 專案期間長條：有進度 % → 空心軌道 + 實心已完成段；沒有 % → 原本的實心長條
+    // 專案期間長條：未完成且有進度 % → 空心軌道 + 實心已完成段；已完成/100% → 實心長條
     const s = Math.max(0, diffDays(min, p.start));
     const e = Math.min(nDays - 1, diffDays(min, p.end));
     const prog = currentProgress(p.id);
+    const isComplete = p.status === "done" || prog === 100;
     let bar = "";
     if (e >= s) {
       const barStyle = `left:${s * DW + 2}px;width:${(e - s + 1) * DW - 4}px;--c:${color}`;
-      if (prog != null && p.status !== "done") {
+      if (prog != null && !isComplete) {
         const pctLabel = prog <= 80
           ? `<span class="g-pct" style="left:calc(${prog}% + 5px)">${prog}%</span>`
           : `<span class="g-pct" style="left:calc(100% + 5px)">${prog}%</span>`;
         bar = `<div class="g-bar track" style="${barStyle}"><div class="g-fill" style="width:${prog}%"></div>${pctLabel}</div>`;
       } else {
-        bar = `<div class="g-bar ${p.status === "done" ? "done" : ""}" style="${barStyle}"></div>`;
+        bar = `<div class="g-bar ${isComplete ? "done" : ""}" style="${barStyle}"></div>`;
       }
     }
 
