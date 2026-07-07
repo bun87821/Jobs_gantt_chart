@@ -159,6 +159,26 @@
     padding: 10px 14px; border-bottom: 1px solid var(--border);
   }
   .gantt-toolbar .hint { color: var(--text-muted); font-size: 12.5px; }
+  .gantt-range-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .gantt-range-filter span {
+    color: var(--text-secondary);
+    font-size: 12.5px;
+  }
+  .gantt-range-filter input[type="date"] {
+    width: 136px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-primary);
+    background: var(--page);
+    border: 1px solid var(--baseline);
+    border-radius: 7px;
+    padding: 5px 8px;
+  }
   .gantt-scroll { overflow-x: auto; }
   .gantt {
     display: grid;
@@ -546,6 +566,9 @@
     padding: 3px 6px;
   }
   @media (max-width: 640px) {
+    .gantt-toolbar { align-items: stretch; }
+    .gantt-range-filter { width: 100%; }
+    .gantt-range-filter input[type="date"] { flex: 1 1 132px; min-width: 0; }
     dialog { width: min(100vw - 24px, 440px); }
     .field-row { flex-direction: column; }
     .field-row .field { width: 100%; }
@@ -626,6 +649,13 @@
   <section id="viewGantt" class="card">
     <div class="gantt-toolbar">
       <button class="ghost" onclick="scrollToToday()">回到今天</button>
+      <div class="gantt-range-filter" aria-label="甘特圖顯示區間">
+        <span>顯示</span>
+        <input id="ganttFilterStart" type="date" onchange="applyGanttFilter()" title="甘特圖開始日期">
+        <span>到</span>
+        <input id="ganttFilterEnd" type="date" onchange="applyGanttFilter()" title="留空表示顯示到未來">
+        <button class="ghost" onclick="resetGanttFilter()">預設</button>
+      </div>
       <span class="hint">點專案名稱可編輯專案；點時間格子可補記那一天的進度；滑鼠移到圓點上可看當天做了什麼。</span>
     </div>
     <div class="gantt-scroll" id="ganttScroll"></div>
@@ -766,10 +796,14 @@
 const STORE_KEY = "gantt-tracker-v1";   // 訪客模式的本機資料，登入後可匯入帳號
 const GUEST_KEY = "gantt-tracker-guest"; // 記住「先不登入」的選擇
 const THEME_KEY = "gantt-theme";
+const GANTT_FILTER_START_KEY = "gantt-filter-start";
+const GANTT_FILTER_END_KEY = "gantt-filter-end";
 const SLOT_COUNT = 8;
 let state = { projects: [], logs: [], todos: [] };
 let currentUser = null;
 let guestMode = false;
+let ganttFilterStart = "";
+let ganttFilterEnd = "";
 
 async function api(url, opts = {}) {
   const res = await fetch(url, {
@@ -887,6 +921,10 @@ function weekCode(s) {
   return `W${year % 10}${String(week).padStart(2, "0")}`;
 }
 
+function defaultGanttFilterStart() {
+  return addDays(todayStr(), -14);
+}
+
 /* ============ 共用 ============ */
 const $ = id => document.getElementById(id);
 function esc(t) { return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
@@ -951,30 +989,102 @@ function refresh() {
 const DW = 30; // 每日欄寬 px
 document.documentElement.style.setProperty("--dw", DW + "px");
 
-function ganttRange() {
+function loadGanttFilter() {
+  const savedStart = localStorage.getItem(GANTT_FILTER_START_KEY);
+  const savedEnd = localStorage.getItem(GANTT_FILTER_END_KEY);
+  ganttFilterStart = savedStart && isValidDateStr(savedStart) ? savedStart : defaultGanttFilterStart();
+  ganttFilterEnd = savedEnd && isValidDateStr(savedEnd) ? savedEnd : "";
+  if (ganttFilterEnd && ganttFilterEnd < ganttFilterStart) ganttFilterEnd = "";
+}
+
+function saveGanttFilter() {
+  localStorage.setItem(GANTT_FILTER_START_KEY, ganttFilterStart);
+  localStorage.setItem(GANTT_FILTER_END_KEY, ganttFilterEnd);
+}
+
+function syncGanttFilterInputs() {
+  const startEl = $("ganttFilterStart");
+  const endEl = $("ganttFilterEnd");
+  if (startEl) startEl.value = ganttFilterStart;
+  if (endEl) endEl.value = ganttFilterEnd;
+}
+
+function applyGanttFilter() {
+  const start = $("ganttFilterStart").value || defaultGanttFilterStart();
+  const end = $("ganttFilterEnd").value || "";
+  if (!isValidDateStr(start) || (end && !isValidDateStr(end))) {
+    toast("請選擇正確的日期區間");
+    syncGanttFilterInputs();
+    return;
+  }
+  if (end && end < start) {
+    toast("結束日不能早於開始日");
+    syncGanttFilterInputs();
+    return;
+  }
+  ganttFilterStart = start;
+  ganttFilterEnd = end;
+  saveGanttFilter();
+  renderGantt();
+}
+
+function resetGanttFilter() {
+  ganttFilterStart = defaultGanttFilterStart();
+  ganttFilterEnd = "";
+  localStorage.removeItem(GANTT_FILTER_START_KEY);
+  localStorage.removeItem(GANTT_FILTER_END_KEY);
+  renderGantt();
+}
+
+function projectInGanttFilter(p) {
+  if (!ganttFilterStart) return true;
+  if (p.end < ganttFilterStart) return false;
+  if (ganttFilterEnd && p.start > ganttFilterEnd) return false;
+  return true;
+}
+
+function filteredGanttProjects() {
+  return sortedProjects().filter(projectInGanttFilter);
+}
+
+function dateWithinGanttRange(date) {
+  if (date < ganttFilterStart) return false;
+  if (ganttFilterEnd && date > ganttFilterEnd) return false;
+  return true;
+}
+
+function ganttRange(projects) {
   const today = todayStr();
-  let min = addDays(today, -10), max = addDays(today, 20);
-  for (const p of state.projects) {
-    if (p.start < min) min = p.start;
-    if (p.end > max) max = p.end;
+  const visibleIds = new Set(projects.map(p => p.id));
+  let min = ganttFilterStart || addDays(today, -10);
+  let max = ganttFilterEnd || addDays(today, 20);
+  for (const p of projects) {
+    if (!ganttFilterStart && p.start < min) min = p.start;
+    if (!ganttFilterEnd && p.end > max) max = p.end;
   }
   for (const l of state.logs) {
-    if (l.date < min) min = l.date;
-    if (l.date > max) max = l.date;
+    if (!visibleIds.has(l.projectId) || !dateWithinGanttRange(l.date)) continue;
+    if (!ganttFilterStart && l.date < min) min = l.date;
+    if (!ganttFilterEnd && l.date > max) max = l.date;
   }
   for (const t of state.todos) {
     if (t.done) continue;
-    if (t.date < min) min = t.date;
-    if (t.date > max) max = t.date;
+    if (!visibleIds.has(t.projectId) || !dateWithinGanttRange(t.date)) continue;
+    if (!ganttFilterStart && t.date < min) min = t.date;
+    if (!ganttFilterEnd && t.date > max) max = t.date;
   }
+  if (today > max && !ganttFilterEnd) max = addDays(today, 20);
   return { min: addDays(min, -3), max: addDays(max, 5) };
 }
 
 function renderGantt() {
   const wrap = $("ganttScroll");
-  const projects = sortedProjects();
+  syncGanttFilterInputs();
+  const allProjects = sortedProjects();
+  const projects = filteredGanttProjects();
 
-  if (projects.length === 0) {
+  if (allProjects.length === 0) {
+    wrap._minDate = null;
     wrap.innerHTML = `<div class="empty-state">
       <p>還沒有任何專案。先建立一個專案，之後每天記錄進度就會自動顯示在甘特圖上。</p>
       <button class="primary" onclick="openProjectDialog()">＋ 新增第一個專案</button>
@@ -983,17 +1093,29 @@ function renderGantt() {
     return;
   }
 
-  const { min, max } = ganttRange();
+  if (projects.length === 0) {
+    wrap._minDate = null;
+    wrap.innerHTML = `<div class="empty-state">
+      <p>目前顯示區間沒有專案。可以把開始日期往前調，或按「預設」回到兩週前到未來。</p>
+      <button onclick="resetGanttFilter()">回到預設區間</button>
+    </div>`;
+    return;
+  }
+
+  const visibleIds = new Set(projects.map(p => p.id));
+  const { min, max } = ganttRange(projects);
   const nDays = diffDays(min, max) + 1;
   const today = todayStr();
 
   // 依專案+日期彙整紀錄
   const logMap = {}; // key: projectId|date -> [log entries]
   for (const l of state.logs) {
+    if (!visibleIds.has(l.projectId)) continue;
     (logMap[l.projectId + "|" + l.date] ||= []).push(l);
   }
   const todoMap = {}; // key: projectId|date -> [todo entries]
   for (const t of state.todos) {
+    if (!visibleIds.has(t.projectId)) continue;
     if (!t.done) (todoMap[t.projectId + "|" + t.date] ||= []).push(t);
   }
 
@@ -1888,6 +2010,7 @@ let gsiReady = false;
 
 async function init() {
   applyTheme(effectiveTheme());
+  loadGanttFilter();
 
   try {
     const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
