@@ -387,6 +387,29 @@
     padding: 10px 14px; border-bottom: 1px solid var(--border);
   }
   .week-title { font-weight: 600; font-size: 15px; }
+  .week-day-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .week-day-filter .label {
+    color: var(--text-secondary);
+    font-size: 12.5px;
+  }
+  .weekday-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .weekday-check:hover { background: var(--hover-wash); }
+  .weekday-check input { margin: 0; }
   .report { padding: 6px 18px 18px; }
   .r-day { padding: 10px 0; border-bottom: 1px solid var(--grid); }
   .r-day:last-of-type { border-bottom: none; }
@@ -564,6 +587,11 @@
   .todo-text { color: var(--text-secondary); overflow-wrap: anywhere; }
   .todo-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .todo-actions button { padding: 3px 9px; font-size: 12px; }
+  .todo-date-label {
+    align-self: center;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
   .todo-actions input[type="date"] {
     width: 132px;
     font: inherit;
@@ -685,6 +713,16 @@
       <button onclick="goThisWeek()">本週</button>
       <button onclick="shiftWeek(1)">下一週 ›</button>
       <span class="week-title" id="weekTitle"></span>
+      <div class="week-day-filter" aria-label="週報顯示星期">
+        <span class="label">顯示</span>
+        <label class="weekday-check"><input type="checkbox" value="0" onchange="toggleWeekdayFilter(this)">日</label>
+        <label class="weekday-check"><input type="checkbox" value="1" onchange="toggleWeekdayFilter(this)">一</label>
+        <label class="weekday-check"><input type="checkbox" value="2" onchange="toggleWeekdayFilter(this)">二</label>
+        <label class="weekday-check"><input type="checkbox" value="3" onchange="toggleWeekdayFilter(this)">三</label>
+        <label class="weekday-check"><input type="checkbox" value="4" onchange="toggleWeekdayFilter(this)">四</label>
+        <label class="weekday-check"><input type="checkbox" value="5" onchange="toggleWeekdayFilter(this)">五</label>
+        <label class="weekday-check"><input type="checkbox" value="6" onchange="toggleWeekdayFilter(this)">六</label>
+      </div>
       <div class="spacer" style="flex:1"></div>
       <button onclick="copyWeekReport()">📋 複製週報文字</button>
     </div>
@@ -809,6 +847,7 @@ const THEME_KEY = "gantt-theme";
 const GANTT_FILTER_START_KEY = "gantt-filter-start";
 const GANTT_FILTER_END_KEY = "gantt-filter-end";
 const GANTT_HIDE_COMPLETED_KEY = "gantt-hide-completed";
+const WEEKDAY_FILTER_KEY = "week-report-days";
 const SLOT_COUNT = 8;
 let state = { projects: [], logs: [], todos: [] };
 let currentUser = null;
@@ -816,6 +855,7 @@ let guestMode = false;
 let ganttFilterStart = "";
 let ganttFilterEnd = "";
 let ganttHideCompleted = false;
+let weekVisibleDays = new Set([1, 2, 3, 4, 5]);
 
 async function api(url, opts = {}) {
   const res = await fetch(url, {
@@ -1668,8 +1708,24 @@ function completeTodoWithPrompt(id) {
 }
 
 function completeTodoFromList(btn, id) {
-  const input = btn.closest(".todo-actions").querySelector("input[type='date']");
+  const input = btn.closest(".todo-actions").querySelector(".todo-complete-date");
   completeTodo(id, input ? input.value : todayStr());
+}
+
+function updateTodoDateFromInput(input, id) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  if (!isValidDateStr(input.value)) {
+    toast("待辦日期格式不正確");
+    input.value = t.date;
+    return;
+  }
+  t.date = input.value;
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderTodos();
+  toast("已更新待辦日期 ✓");
 }
 
 function renderTodos() {
@@ -1697,7 +1753,10 @@ function renderTodos() {
       </div>
       <div class="todo-actions">
         <button type="button" onclick="openLogDialog('${t.projectId}', '${t.date}')">查看</button>
-        <input type="date" value="${todayStr()}" aria-label="完成日期">
+        <span class="todo-date-label">待辦日</span>
+        <input class="todo-schedule-date" type="date" value="${t.date}" aria-label="待辦日期" title="待辦日期" onchange="updateTodoDateFromInput(this, '${t.id}')">
+        <span class="todo-date-label">完成日</span>
+        <input class="todo-complete-date" type="date" value="${todayStr()}" aria-label="完成日期" title="完成日期">
         <button type="button" onclick="completeTodoFromList(this, '${t.id}')">完成</button>
         <button type="button" class="danger" onclick="deleteTodo('${t.id}')">刪除</button>
       </div>
@@ -1707,6 +1766,37 @@ function renderTodos() {
 
 /* ============ 週報 ============ */
 let weekStart = weekStartOf(todayStr());
+
+function loadWeekdayFilter() {
+  const raw = localStorage.getItem(WEEKDAY_FILTER_KEY);
+  if (!raw) return;
+  const days = raw.split(",").map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6);
+  if (days.length) weekVisibleDays = new Set(days);
+}
+
+function saveWeekdayFilter() {
+  localStorage.setItem(WEEKDAY_FILTER_KEY, [...weekVisibleDays].sort((a, b) => a - b).join(","));
+}
+
+function syncWeekdayFilterInputs() {
+  document.querySelectorAll(".weekday-check input").forEach(input => {
+    input.checked = weekVisibleDays.has(Number(input.value));
+  });
+}
+
+function toggleWeekdayFilter(input) {
+  const day = Number(input.value);
+  if (input.checked) weekVisibleDays.add(day);
+  else weekVisibleDays.delete(day);
+  if (!weekVisibleDays.size) {
+    weekVisibleDays.add(day);
+    input.checked = true;
+    toast("至少要顯示一天");
+    return;
+  }
+  saveWeekdayFilter();
+  renderWeek();
+}
 
 function switchView(v) {
   $("viewGantt").style.display = v === "gantt" ? "" : "none";
@@ -1725,6 +1815,8 @@ function weekData() {
   const days = [];
   for (let i = 0; i < 7; i++) {
     const ds = addDays(weekStart, i);
+    const weekday = parseD(ds).getDay();
+    if (!weekVisibleDays.has(weekday)) continue;
     const entries = state.logs
       .filter(l => l.date === ds)
       .map(l => ({ ...l, project: projectById(l.projectId) }))
@@ -1739,6 +1831,7 @@ function weekData() {
 
 function renderWeek() {
   const { days, weekEnd, ongoing } = weekData();
+  syncWeekdayFilterInputs();
   $("weekTitle").textContent = `${weekCode(weekStart)}・${weekStart.replaceAll("-", "/")} – ${shortD(weekEnd)}`;
   const today = todayStr();
 
@@ -2044,6 +2137,7 @@ let gsiReady = false;
 async function init() {
   applyTheme(effectiveTheme());
   loadGanttFilter();
+  loadWeekdayFilter();
 
   try {
     const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
