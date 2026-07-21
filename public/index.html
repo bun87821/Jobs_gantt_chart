@@ -1281,9 +1281,9 @@ function renderGantt() {
       todos += `<div class="g-todo" style="left:${idx * DW + (DW - 11) / 2}px;--c:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
 
-    const statusCls = p.status === "done" ? "done" : p.status === "paused" ? "paused" : "";
-    const statusTxt = p.status === "active" ? "" : `<span class="p-status ${statusCls}">${STATUS_LABEL[p.status]}</span>`;
-    const progTxt = (prog != null && p.status !== "done") ? `・目前 ${prog}%` : "";
+    const statusCls = isComplete ? "done" : p.status === "paused" ? "paused" : "";
+    const statusTxt = p.status === "active" && !isComplete ? "" : `<span class="p-status ${statusCls}">${isComplete ? STATUS_LABEL.done : STATUS_LABEL[p.status]}</span>`;
+    const progTxt = (prog != null && !isComplete) ? `・目前 ${prog}%` : "";
     rows += `
       <div class="g-row">
         <div class="g-namecol" draggable="true" data-pid="${p.id}" onclick="if (!window.justDraggedProject && !event.target.closest('.drag-handle')) openProjectDialog('${p.id}')" title="拖移可調整順序；點擊可編輯專案">
@@ -1467,8 +1467,10 @@ $("ganttScroll").addEventListener("mousemove", e => {
     const p = projectById(cell.dataset.pid);
     const remain = diffDays(todayStr(), p.end);
     const prog = currentProgress(p.id);
+    const isComplete = isProjectComplete(p);
+    const statusLabel = isComplete ? STATUS_LABEL.done : STATUS_LABEL[p.status];
     html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
-      <div class="tt-sub">${p.start} → ${p.end} ・ ${STATUS_LABEL[p.status]}${prog != null && p.status !== "done" ? ` ・ 目前進度 ${prog}%` : ""}${p.status === "active" ? (remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已超過預計完成日 ${-remain} 天`) : ""}</div>
+      <div class="tt-sub">${p.start} → ${p.end} ・ ${statusLabel}${prog != null && !isComplete ? ` ・ 目前進度 ${prog}%` : ""}${p.status === "active" && !isComplete ? (remain >= 0 ? ` ・ 還剩 ${remain} 天` : ` ・ 已超過預計完成日 ${-remain} 天`) : ""}</div>
       <div class="tt-sub">點擊可記錄 ${cell.dataset.date} 的進度</div>`;
   }
   if (!html) { tooltip.style.display = "none"; return; }
@@ -1602,6 +1604,7 @@ function saveLog(e) {
   }
   if (!text && progress === null) { toast("請輸入執行內容，或至少填進度 %"); return false; }
   const wasEditing = !!editingLogId;
+  const project = projectById($("ldProject").value);
   if (editingLogId) {
     const existing = state.logs.find(l => l.id === editingLogId);
     if (!existing) { resetLogEdit(); toast("找不到要更新的紀錄"); return false; }
@@ -1613,6 +1616,7 @@ function saveLog(e) {
     if (progress !== null) entry.progress = progress;
     state.logs.push(entry);
   }
+  if (progress === 100 && project) project.status = "done";
   $("ldText").value = "";
   $("ldProgress").value = "";
   resetLogEdit();
@@ -1825,7 +1829,7 @@ function weekData() {
     days.push({ ds, entries });
   }
   const weekEnd = addDays(weekStart, 6);
-  const ongoing = sortedProjects().filter(p => p.status !== "done" && p.start <= weekEnd && p.end >= weekStart || p.status === "active" && p.start <= weekEnd);
+  const ongoing = sortedProjects().filter(p => !isProjectComplete(p) && p.start <= weekEnd && (p.end >= weekStart || p.status === "active"));
   return { days, weekEnd, ongoing };
 }
 
