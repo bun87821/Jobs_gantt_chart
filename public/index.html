@@ -835,6 +835,34 @@
   </form>
 </dialog>
 
+<!-- 編輯待辦 -->
+<dialog id="todoDialog">
+  <div class="dlg-head">編輯待辦事項</div>
+  <form method="dialog">
+    <div class="dlg-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="tdDate">待辦日期</label>
+          <input id="tdDate" type="date" required>
+        </div>
+        <div class="field">
+          <label for="tdProject">專案</label>
+          <select id="tdProject"></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="tdText">待辦內容</label>
+        <textarea id="tdText" placeholder="例：下週完成首頁 QA、確認客戶回饋"></textarea>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="danger left" onclick="deleteTodoFromDialog()">刪除</button>
+      <button type="button" onclick="todoDialog.close()">取消</button>
+      <button class="primary" value="save" onclick="return saveTodoEdit(event)">儲存</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 "use strict";
 
@@ -1548,6 +1576,7 @@ function deleteProject() {
 /* ============ 進度紀錄對話框 ============ */
 const logDialog = $("logDialog");
 let editingLogId = null;
+let editingTodoId = null;
 
 function resetLogEdit() {
   editingLogId = null;
@@ -1689,6 +1718,48 @@ function deleteTodo(id) {
   renderTodos();
 }
 
+const todoDialog = $("todoDialog");
+
+function openTodoDialog(id) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  editingTodoId = id;
+  $("tdProject").innerHTML = sortedProjects()
+    .map(p => `<option value="${p.id}">${esc(p.name)}${p.status !== "active" ? `（${STATUS_LABEL[p.status]}）` : ""}</option>`)
+    .join("");
+  $("tdProject").value = t.projectId;
+  $("tdDate").value = t.date;
+  $("tdText").value = t.text || "";
+  todoDialog.showModal();
+  $("tdText").focus();
+}
+
+function saveTodoEdit(e) {
+  e.preventDefault();
+  const t = state.todos.find(x => x.id === editingTodoId);
+  if (!t) { todoDialog.close(); return false; }
+  const text = $("tdText").value.trim();
+  const date = $("tdDate").value;
+  if (!text) { toast("請輸入待辦內容"); return false; }
+  if (!date) { toast("請選擇待辦日期"); return false; }
+  t.text = text;
+  t.date = date;
+  t.projectId = $("tdProject").value;
+  todoDialog.close();
+  save();
+  renderDayLogs();
+  renderGantt();
+  renderProjectView();
+  renderTodos();
+  toast("已更新待辦 ✓");
+  return false;
+}
+
+function deleteTodoFromDialog() {
+  if (editingTodoId) deleteTodo(editingTodoId);
+  todoDialog.close();
+}
+
 function completeTodo(id, completedDate) {
   const t = state.todos.find(x => x.id === id);
   if (!t) return;
@@ -1756,7 +1827,7 @@ function renderTodos() {
         <div class="todo-text">${esc(t.text)}</div>
       </div>
       <div class="todo-actions">
-        <button type="button" onclick="openLogDialog('${t.projectId}', '${t.date}')">查看</button>
+        <button type="button" onclick="openTodoDialog('${t.id}')">編輯</button>
         <span class="todo-date-label">待辦日</span>
         <input class="todo-schedule-date" type="date" value="${t.date}" aria-label="待辦日期" title="待辦日期" onchange="updateTodoDateFromInput(this, '${t.id}')">
         <span class="todo-date-label">完成日</span>
