@@ -342,6 +342,16 @@
     transform: rotate(45deg);
   }
   .g-todo:hover { transform: rotate(45deg) scale(1.3); }
+  /* 待辦時間區間：連接開始與截止的細線 */
+  .g-todo-range {
+    position: absolute;
+    top: 23px; height: 3px;
+    border-radius: 2px;
+    background: var(--c);
+    opacity: .45;
+    pointer-events: none;
+    z-index: 2;
+  }
 
   .empty-state { padding: 60px 20px; text-align: center; color: var(--text-secondary); }
   .empty-state p { margin: 0 0 16px; }
@@ -545,6 +555,7 @@
   .dlg-body { padding: 12px 18px; display: flex; flex-direction: column; gap: 12px; }
   .dlg-foot { padding: 0 18px 16px; display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
   .dlg-foot .left { margin-right: auto; }
+  .dlg-hint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
   .field label { display: block; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; }
   .field input, .field select, .field textarea {
     width: 100%;
@@ -842,18 +853,23 @@
     <div class="dlg-body">
       <div class="field-row">
         <div class="field">
-          <label for="tdDate">待辦日期</label>
+          <label for="tdDate">開始日期</label>
           <input id="tdDate" type="date" required>
         </div>
         <div class="field">
-          <label for="tdProject">專案</label>
-          <select id="tdProject"></select>
+          <label for="tdEnd">截止日期（選填）</label>
+          <input id="tdEnd" type="date">
         </div>
+      </div>
+      <div class="field">
+        <label for="tdProject">專案</label>
+        <select id="tdProject"></select>
       </div>
       <div class="field">
         <label for="tdText">待辦內容</label>
         <textarea id="tdText" placeholder="例：下週完成首頁 QA、確認客戶回饋"></textarea>
       </div>
+      <p class="dlg-hint">留空截止日＝當天的待辦；填了截止日＝在這段區間內完成即可。</p>
     </div>
     <div class="dlg-foot">
       <button type="button" class="danger left" onclick="deleteTodoFromDialog()">刪除</button>
@@ -1213,10 +1229,10 @@ function renderGantt() {
     if (!visibleIds.has(l.projectId)) continue;
     (logMap[l.projectId + "|" + l.date] ||= []).push(l);
   }
-  const todoMap = {}; // key: projectId|date -> [todo entries]
+  const todoMap = {}; // key: projectId|截止日 -> [todo entries]（菱形標在截止日）
   for (const t of state.todos) {
     if (!visibleIds.has(t.projectId)) continue;
-    if (!t.done) (todoMap[t.projectId + "|" + t.date] ||= []).push(t);
+    if (!t.done) (todoMap[t.projectId + "|" + todoDeadline(t)] ||= []).push(t);
   }
 
   // 表頭：月份列
@@ -1301,6 +1317,14 @@ function renderGantt() {
       dots += `<div class="g-dot ${hasProg ? "" : "hollow"}" style="left:${idx * DW + (DW - 10) / 2}px;--c:${color}" data-pid="${p.id}" data-date="${ds}"></div>`;
     }
     let todos = "";
+    // 區間連接線：從開始日連到截止日（只在有區間時畫）
+    for (const t of state.todos) {
+      if (t.done || t.projectId !== p.id || !todoHasRange(t)) continue;
+      const sIdx = diffDays(min, t.date), eIdx = diffDays(min, t.endDate);
+      const a = Math.max(0, Math.min(sIdx, eIdx)), b = Math.min(nDays - 1, Math.max(sIdx, eIdx));
+      if (b < 0 || a >= nDays) continue;
+      todos += `<div class="g-todo-range" style="left:${a * DW + DW / 2}px;width:${(b - a) * DW}px;--c:${color}"></div>`;
+    }
     for (const key in todoMap) {
       const [pid, ds] = key.split("|");
       if (pid !== p.id) continue;
@@ -1487,10 +1511,10 @@ $("ganttScroll").addEventListener("mousemove", e => {
       <ul>${items.map(l => `<li>${esc(l.text || "（進度更新）")}${l.progress != null ? `　→ 進度 ${l.progress}%` : ""}</li>`).join("")}</ul>`;
   } else if (todo) {
     const p = projectById(todo.dataset.pid);
-    const items = state.todos.filter(t => !t.done && t.projectId === todo.dataset.pid && t.date === todo.dataset.date);
+    const items = state.todos.filter(t => !t.done && t.projectId === todo.dataset.pid && todoDeadline(t) === todo.dataset.date);
     html = `<h4><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</h4>
-      <div class="tt-sub">${todo.dataset.date}（${WD[parseD(todo.dataset.date).getDay()]}）的待辦事項</div>
-      <ul>${items.map(t => `<li>${esc(t.text)}</li>`).join("")}</ul>`;
+      <div class="tt-sub">${todo.dataset.date}（${WD[parseD(todo.dataset.date).getDay()]}）前要完成的待辦</div>
+      <ul>${items.map(t => `<li>${esc(t.text)}${todoHasRange(t) ? `　<span style="opacity:.7">(${todoRangeText(t)})</span>` : ""}</li>`).join("")}</ul>`;
   } else if (cell) {
     const p = projectById(cell.dataset.pid);
     const remain = diffDays(todayStr(), p.end);
@@ -1720,6 +1744,16 @@ function deleteTodo(id) {
 
 const todoDialog = $("todoDialog");
 
+/* 待辦區間：date=開始，endDate=截止（選填）。截止日才是「必須完成」的期限 */
+function todoDeadline(t) { return (t.endDate && t.endDate >= t.date) ? t.endDate : t.date; }
+function todoHasRange(t) { return t.endDate && t.endDate > t.date; }
+/* 區間顯示文字，例：9/3（四）– 9/10（四） */
+function todoRangeText(t) {
+  const s = `${shortD(t.date)}（${WD[parseD(t.date).getDay()]}）`;
+  if (!todoHasRange(t)) return s;
+  return `${s} – ${shortD(t.endDate)}（${WD[parseD(t.endDate).getDay()]}）`;
+}
+
 function openTodoDialog(id) {
   const t = state.todos.find(x => x.id === id);
   if (!t) return;
@@ -1729,6 +1763,7 @@ function openTodoDialog(id) {
     .join("");
   $("tdProject").value = t.projectId;
   $("tdDate").value = t.date;
+  $("tdEnd").value = t.endDate || "";
   $("tdText").value = t.text || "";
   todoDialog.showModal();
   $("tdText").focus();
@@ -1740,11 +1775,14 @@ function saveTodoEdit(e) {
   if (!t) { todoDialog.close(); return false; }
   const text = $("tdText").value.trim();
   const date = $("tdDate").value;
+  const end = $("tdEnd").value;
   if (!text) { toast("請輸入待辦內容"); return false; }
-  if (!date) { toast("請選擇待辦日期"); return false; }
+  if (!date) { toast("請選擇開始日期"); return false; }
+  if (end && end < date) { toast("截止日期不能早於開始日期"); return false; }
   t.text = text;
   t.date = date;
   t.projectId = $("tdProject").value;
+  if (end && end > date) t.endDate = end; else delete t.endDate;
   todoDialog.close();
   save();
   renderDayLogs();
@@ -1796,6 +1834,7 @@ function updateTodoDateFromInput(input, id) {
     return;
   }
   t.date = input.value;
+  if (t.endDate && t.endDate < t.date) delete t.endDate; // 開始日超過截止日 → 區間失效
   save();
   renderDayLogs();
   renderGantt();
@@ -1809,7 +1848,7 @@ function renderTodos() {
   if (!list || !summary) return;
   const openTodos = state.todos
     .filter(t => !t.done && projectById(t.projectId))
-    .sort((a, b) => a.date.localeCompare(b.date) || projectById(a.projectId).start.localeCompare(projectById(b.projectId).start));
+    .sort((a, b) => todoDeadline(a).localeCompare(todoDeadline(b)) || a.date.localeCompare(b.date) || projectById(a.projectId).start.localeCompare(projectById(b.projectId).start));
 
   summary.textContent = openTodos.length ? `${openTodos.length} 件未完成` : "目前沒有待辦";
   if (!openTodos.length) {
@@ -1819,17 +1858,17 @@ function renderTodos() {
 
   list.innerHTML = openTodos.map(t => {
     const p = projectById(t.projectId);
-    const overdue = t.date < todayStr();
+    const overdue = todoDeadline(t) < todayStr();
     return `<div class="todo-item">
-      <div class="todo-date">${shortD(t.date)}（${WD[parseD(t.date).getDay()]}）${overdue ? "<br>已過期" : ""}</div>
+      <div class="todo-date">${todoRangeText(t)}${overdue ? "<br>已過期" : ""}</div>
       <div class="todo-main">
         <div class="todo-project"><span class="p-swatch" style="background:${slotColor(p.slot)}"></span>${esc(p.name)}</div>
         <div class="todo-text">${esc(t.text)}</div>
       </div>
       <div class="todo-actions">
-        <button type="button" onclick="openTodoDialog('${t.id}')">編輯</button>
-        <span class="todo-date-label">待辦日</span>
-        <input class="todo-schedule-date" type="date" value="${t.date}" aria-label="待辦日期" title="待辦日期" onchange="updateTodoDateFromInput(this, '${t.id}')">
+        <button type="button" onclick="openTodoDialog('${t.id}')">編輯${todoHasRange(t) ? "（區間）" : ""}</button>
+        <span class="todo-date-label">${todoHasRange(t) ? "開始日" : "待辦日"}</span>
+        <input class="todo-schedule-date" type="date" value="${t.date}" aria-label="待辦開始日期" title="待辦開始日期" onchange="updateTodoDateFromInput(this, '${t.id}')">
         <span class="todo-date-label">完成日</span>
         <input class="todo-complete-date" type="date" value="${todayStr()}" aria-label="完成日期" title="完成日期">
         <button type="button" onclick="completeTodoFromList(this, '${t.id}')">完成</button>
@@ -2197,7 +2236,7 @@ function loadSampleData() {
     ],
     todos: [
       { id: uid(), date: addDays(t, 1), projectId: p1, text: "檢查手機版首頁間距與表單驗證", done: false },
-      { id: uid(), date: addDays(t, 3), projectId: p1, text: "整理客戶回饋並排定修正項目", done: false },
+      { id: uid(), date: addDays(t, 2), endDate: addDays(t, 6), projectId: p1, text: "整理客戶回饋並排定修正項目（這週內做完即可）", done: false },
       { id: uid(), date: addDays(t, 2), projectId: p2, text: "補上提案簡報的時程與報價頁", done: false },
     ],
   };
