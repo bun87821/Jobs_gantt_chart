@@ -902,11 +902,21 @@ let ganttHideCompleted = false;
 let weekVisibleDays = new Set([1, 2, 3, 4, 5]);
 
 async function api(url, opts = {}) {
-  const res = await fetch(url, {
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  const { timeout = 12000, ...rest } = opts;
+  // 逾時保護：請求卡住時中止，避免整頁一直轉圈
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  let res;
+  try {
+    res = await fetch(url, {
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      ...rest,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) {
     showLogin();
     throw new Error("unauthorized");
@@ -2255,9 +2265,9 @@ async function init() {
   loadWeekdayFilter();
 
   try {
-    const cfg = await fetch("/api/config", { credentials: "same-origin" }).then(r => r.json());
+    const cfg = await api("/api/config", { timeout: 8000 });
     googleClientId = cfg.googleClientId || "";
-  } catch (e) { /* 稍後在登入畫面顯示錯誤 */ }
+  } catch (e) { /* 取不到設定就當沒有 client id，仍可用訪客 */ }
 
   // 之前選過「先不登入」：直接進訪客模式
   if (localStorage.getItem(GUEST_KEY)) {
@@ -2266,9 +2276,16 @@ async function init() {
   }
 
   try {
-    currentUser = await api("/api/me");
+    currentUser = await api("/api/me", { timeout: 8000 });
     await enterApp();
-  } catch (e) { /* 未登入：api() 已呼叫 showLogin() */ }
+  } catch (e) {
+    // 401 時 api() 已顯示登入畫面；逾時／離線等其他情況也要顯示登入畫面（含訪客選項），
+    // 避免整頁空白一直轉圈
+    if ($("loginOverlay").style.display === "none") {
+      showLogin();
+      if (e && e.name === "AbortError") loginError("連線逾時，請檢查網路後重新整理，或先以訪客模式使用。");
+    }
+  }
 }
 
 function showLogin() {
