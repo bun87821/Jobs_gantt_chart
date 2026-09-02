@@ -1632,14 +1632,15 @@ function openLogDialog(projectId, date) {
 function renderDayLogs() {
   const pid = $("ldProject").value, date = $("ldDate").value;
   const items = state.logs.filter(l => l.projectId === pid && l.date === date);
-  const todos = state.todos.filter(t => !t.done && t.projectId === pid && t.date === date);
+  // 顯示這天落在待辦時間區間內的待辦（含開始日～截止日；單日待辦即當天）
+  const todos = state.todos.filter(t => !t.done && t.projectId === pid && t.date <= date && date <= todoDeadline(t));
   const box = $("ldExisting");
   if (items.length === 0 && todos.length === 0) { box.innerHTML = ""; box.style.display = "none"; return; }
   box.style.display = "";
   box.innerHTML = `<h4>${date} 已有內容</h4>` + items.map(l =>
     `<div class="log-item"><span class="lt">・${l.progress != null ? `<b>[${l.progress}%]</b> ` : ""}${esc(l.text || "（進度更新）")}</span><button type="button" onclick="editLog('${l.id}')">編輯</button><button type="button" onclick="convertLogToTodo('${l.id}')">轉待辦</button><button type="button" onclick="deleteLog('${l.id}')">刪除</button></div>`
   ).join("") + todos.map(t =>
-    `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}</span><button type="button" onclick="completeTodoWithPrompt('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
+    `<div class="log-item"><span class="lt">◇ 待辦：${esc(t.text)}${todoHasRange(t) ? `（${todoRangeText(t)}）` : ""}</span><button type="button" onclick="openTodoDialog('${t.id}')">編輯</button><button type="button" onclick="completeTodoWithPrompt('${t.id}')">完成</button><button type="button" onclick="deleteTodo('${t.id}')">刪除</button></div>`
   ).join("");
 }
 
